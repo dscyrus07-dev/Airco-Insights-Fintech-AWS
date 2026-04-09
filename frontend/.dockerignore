@@ -1,0 +1,7 @@
+.git
+.next
+node_modules
+__pycache__
+*.log
+.env.local
+tsconfig.tsbuildinfo
