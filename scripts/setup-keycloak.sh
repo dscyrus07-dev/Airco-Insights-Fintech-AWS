@@ -3,17 +3,29 @@
 # Keycloak Setup Script for Airco Insights
 # This script configures Keycloak with the required realm and client
 
-set -e
+set -euo pipefail
 
-KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8080}
+PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-test.theairco.ai}
+KEYCLOAK_URL=${KEYCLOAK_URL:-https://$PUBLIC_DOMAIN}
 ADMIN_USER=${KEYCLOAK_ADMIN:-admin}
-ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin123}
-REALM_NAME="airco-insights"
-CLIENT_ID="frontend-app"
-CLIENT_SECRET="airco-frontend-secret"
+ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-change-me-keycloak-admin}
+REALM_NAME=${KEYCLOAK_REALM:-airco-insights}
+CLIENT_ID=${KEYCLOAK_CLIENT_ID:-frontend-app}
+CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-REPLACE_ME}
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required for Keycloak setup." >&2
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required for Keycloak setup." >&2
+    exit 1
+fi
 
 echo "Setting up Keycloak for Airco Insights..."
 echo "Keycloak URL: $KEYCLOAK_URL"
+echo "Public domain: $PUBLIC_DOMAIN"
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to be ready..."
@@ -37,6 +49,18 @@ if [ "$ADMIN_TOKEN" == "null" ] || [ -z "$ADMIN_TOKEN" ]; then
 fi
 
 echo "Admin token obtained successfully."
+
+realm_exists() {
+    curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME" >/dev/null 2>&1
+}
+
+client_exists() {
+    curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients?clientId=$CLIENT_ID" | jq -e 'length > 0' >/dev/null 2>&1
+}
+
+user_exists() {
+    curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME/users?username=test@airco.com" | jq -e 'length > 0' >/dev/null 2>&1
+}
 
 # Create realm
 echo "Creating realm: $REALM_NAME..."
@@ -70,10 +94,14 @@ REALM_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$REALM_PAYLOAD" || echo "Realm might already exist"
+if realm_exists; then
+    echo "Realm already exists, skipping creation."
+else
+    curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$REALM_PAYLOAD"
+fi
 
 # Create client
 echo "Creating client: $CLIENT_ID..."
@@ -86,16 +114,16 @@ CLIENT_PAYLOAD=$(cat <<EOF
   "clientAuthenticatorType": "client-secret",
   "secret": "$CLIENT_SECRET",
   "redirectUris": [
+    "https://$PUBLIC_DOMAIN/*",
+    "http://$PUBLIC_DOMAIN/*",
     "http://localhost:3000/*",
-    "http://localhost:3001/*",
-    "http://127.0.0.1:3000/*",
-    "http://127.0.0.1:3001/*"
+    "http://127.0.0.1:3000/*"
   ],
   "webOrigins": [
+    "https://$PUBLIC_DOMAIN",
+    "http://$PUBLIC_DOMAIN",
     "http://localhost:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001"
+    "http://127.0.0.1:3000"
   ],
   "standardFlowEnabled": true,
   "implicitFlowEnabled": false,
@@ -130,10 +158,14 @@ CLIENT_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$CLIENT_PAYLOAD" || echo "Client might already exist"
+if client_exists; then
+    echo "Client already exists, skipping creation."
+else
+    curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$CLIENT_PAYLOAD"
+fi
 
 # Create a test user
 echo "Creating test user..."
@@ -156,10 +188,14 @@ USER_PAYLOAD=$(cat <<EOF
 EOF
 )
 
-curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM_NAME/users" \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$USER_PAYLOAD" || echo "Test user might already exist"
+if user_exists; then
+    echo "Test user already exists, skipping creation."
+else
+    curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM_NAME/users" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$USER_PAYLOAD"
+fi
 
 echo ""
 echo "Keycloak setup completed!"

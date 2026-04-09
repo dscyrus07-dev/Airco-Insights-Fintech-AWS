@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.ec2.yml)
+COMPOSE_FILES=(-f "$PROJECT_ROOT/docker-compose.yml" -f "$PROJECT_ROOT/docker-compose.ec2.yml")
 ENV_FILE="$PROJECT_ROOT/.env"
 ACTION="${1:-deploy}"
 COMPOSE_BIN=()
@@ -43,17 +43,22 @@ require_files() {
 }
 
 ensure_ssl_files() {
-  local ssl_dir
+  local ssl_dir cert_path key_path
   ssl_dir="$(grep -E '^SSL_CERTS_DIR=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
-  ssl_dir="${ssl_dir:-/opt/airco/ssl}"
+  cert_path="$(grep -E '^SSL_CERT_PATH=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
+  key_path="$(grep -E '^SSL_KEY_PATH=' "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
 
-  [[ -f "$ssl_dir/fullchain.pem" ]] || {
-    echo "Missing SSL certificate: $ssl_dir/fullchain.pem" >&2
+  ssl_dir="${ssl_dir:-/opt/airco/ssl}"
+  cert_path="${cert_path:-$ssl_dir/fullchain.pem}"
+  key_path="${key_path:-$ssl_dir/privkey.pem}"
+
+  [[ -f "$cert_path" ]] || {
+    echo "Missing SSL certificate: $cert_path" >&2
     exit 1
   }
 
-  [[ -f "$ssl_dir/privkey.pem" ]] || {
-    echo "Missing SSL key: $ssl_dir/privkey.pem" >&2
+  [[ -f "$key_path" ]] || {
+    echo "Missing SSL key: $key_path" >&2
     exit 1
   }
 }
