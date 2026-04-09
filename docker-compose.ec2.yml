@@ -161,8 +161,8 @@ services:
       - "443:443"
     environment:
       AIRCO_PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-test.theairco.ai}
-      AIRCO_SSL_CERT_PATH: ${SSL_CERT_PATH:-/etc/airco/ssl/fullchain.pem}
-      AIRCO_SSL_KEY_PATH: ${SSL_KEY_PATH:-/etc/airco/ssl/privkey.pem}
+      AIRCO_SSL_CERT_PATH: /etc/airco/ssl/fullchain.pem
+      AIRCO_SSL_KEY_PATH: /etc/airco/ssl/privkey.pem
     volumes:
       - ${SSL_CERTS_DIR:-/opt/airco/ssl}:/etc/airco/ssl:ro
     healthcheck:
