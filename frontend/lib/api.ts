@@ -1,6 +1,6 @@
 import { ProcessingResult, ProcessingMode, UserDetails } from '@/types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_URL = '/api'
 
 // Helper function to get auth token
 async function getAuthToken(): Promise<string | null> {

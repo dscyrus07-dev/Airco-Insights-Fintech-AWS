@@ -7,6 +7,7 @@ import os
 from typing import Dict, Any
 
 from ..models.job import Job, JobType
+from ..services.frontend_result_builder import build_frontend_processing_result
 from ..services.pipeline_orchestrator import process_statement
 from ..utils.correlation import get_correlation_id
 from ..utils.logging import get_logger
@@ -45,16 +46,11 @@ async def process_pdf_job(job: Job) -> Dict[str, Any]:
             output_dir=output_dir
         )
         
-        # Return result data
-        return {
-            "status": result.get("status", "success"),
-            "excel_path": result.get("excel_path"),
-            "stats": result.get("stats", {}),
-            "validation": result.get("validation", {}),
-            "performance": result.get("performance", {}),
-            "bank_key": result.get("bank_key"),
-            "mode": result.get("mode")
-        }
+        return build_frontend_processing_result(
+            result,
+            mode=mode,
+            excel_url=f"/api/jobs/{job.id}/download",
+        )
         
     except Exception as e:
         logger.error("PDF processing failed", job_id=job.id, error=str(e))

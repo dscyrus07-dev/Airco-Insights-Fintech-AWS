@@ -28,8 +28,7 @@ const BANKS = [
   { name: 'Bank of Baroda', available: false },
 ]
 
-const BACKEND_API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const APP_API_BASE = '/api'
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
@@ -123,7 +122,7 @@ export default function Dashboard() {
     try {
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
       Object.assign(headers, buildUserHeadersFromToken(token))
-      const response = await fetch(`${BACKEND_API_URL}/api/profile/history`, {
+      const response = await fetch(`${APP_API_BASE}/profile/history`, {
         headers,
       })
       const data = await response.json().catch(() => null)
@@ -642,7 +641,7 @@ async function uploadStatement(
   const headers: Record<string, string> | undefined = token
     ? { Authorization: `Bearer ${token}`, ...buildUserHeadersFromToken(token) }
     : undefined
-  const resp = await fetch(`${BACKEND_API_URL}/api/upload/bank-statement-async`, {
+  const resp = await fetch(`${APP_API_BASE}/upload`, {
     method: 'POST',
     body: formData,
     headers,

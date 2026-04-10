@@ -11,6 +11,7 @@ from .message_queue import message_queue
 from .pipeline_orchestrator import process_statement
 from .redis_job_store import redis_job_store
 from .file_history_service import file_history_service
+from .frontend_result_builder import build_frontend_processing_result
 from ..utils.file_handler import upload_to_minio
 from ..models.job import JobStatus, JobUpdate
 from ..utils.correlation import set_correlation_id
@@ -85,8 +86,13 @@ class EventConsumer:
                 result["source_pdf_object_key"] = payload.get("upload_object_key") or (
                     f"users/{user_id}/uploads/{Path(safe_original).stem}_{Path(file_path).name}"
                 )
-            await self._mark_job(job_id, JobStatus.COMPLETED, result_data=result)
-            file_history_service.mark_completed(job_id, result)
+            frontend_result = build_frontend_processing_result(
+                result,
+                mode=mode,
+                excel_url=f"/api/jobs/{job_id}/download",
+            )
+            await self._mark_job(job_id, JobStatus.COMPLETED, result_data=frontend_result)
+            file_history_service.mark_completed(job_id, frontend_result)
             logger.info("Queued statement processed", job_id=job_id, bank_name=user_info.get("bank_name"))
             return True
         except Exception as e:

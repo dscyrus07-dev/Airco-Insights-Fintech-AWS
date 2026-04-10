@@ -361,3 +361,10 @@ Implication:
 ---
 
 This document is intended to represent the current real behavior of the codebase, not just intended target architecture.
+
+
+
+
+
+
+& "C:\Windows\System32\OpenSSH\ssh.exe" -i "C:\Users\admin\Downloads\fintech.pem" -L 9001:localhost:9001 ec2-user@ec2-13-127-21-44.ap-south-1.compute.amazonaws.com

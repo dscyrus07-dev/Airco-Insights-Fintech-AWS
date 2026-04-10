@@ -58,6 +58,10 @@ client_exists() {
     curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients?clientId=$CLIENT_ID" | jq -e 'length > 0' >/dev/null 2>&1
 }
 
+client_uuid() {
+    curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients?clientId=$CLIENT_ID" | jq -r '.[0].id // empty'
+}
+
 user_exists() {
     curl -sf -H "Authorization: Bearer $ADMIN_TOKEN" "$KEYCLOAK_URL/admin/realms/$REALM_NAME/users?username=test@airco.com" | jq -e 'length > 0' >/dev/null 2>&1
 }
@@ -146,7 +150,7 @@ CLIENT_PAYLOAD=$(cat <<EOF
     "pkce.code.challenge.method": "S256"
   },
   "fullScopeAllowed": false,
-  "nodeReTimeout": 0,
+  "nodeTimeout": 0,
   "defaultClientScopes": [
     "web-origins",
     "role_list",
@@ -159,7 +163,12 @@ EOF
 )
 
 if client_exists; then
-    echo "Client already exists, skipping creation."
+    CLIENT_UUID=$(client_uuid)
+    echo "Client already exists, updating redirect URIs and web origins."
+    curl -s -X PUT "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients/$CLIENT_UUID" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$CLIENT_PAYLOAD"
 else
     curl -s -X POST "$KEYCLOAK_URL/admin/realms/$REALM_NAME/clients" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \

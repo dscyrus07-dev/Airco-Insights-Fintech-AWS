@@ -1,15 +1,34 @@
 'use client'
 
 import React, { useState, useRef, useEffect, MouseEvent as ReactMouseEvent } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+// import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSpreadsheet } from './SpreadsheetContext';
 import { SheetData, CATEGORY_OPTIONS } from './types';
-import { Flag, Trash2, Copy, Clipboard, MoreVertical, Plus, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Columns, Rows } from 'lucide-react';
-import clsx from 'clsx';
-import { twMerge } from 'tailwind-merge';
+// import { Flag, Trash2, Copy, Clipboard, MoreVertical, Plus, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Columns, Rows } from 'lucide-react';
+// import clsx from 'clsx';
+// import { twMerge } from 'tailwind-merge';
 
+// Temporary placeholder components
+const Flag = ({ className }: { className?: string }) => <span className={className}>Flag</span>;
+const Trash2 = ({ className }: { className?: string }) => <span className={className}>Delete</span>;
+const Copy = ({ className }: { className?: string }) => <span className={className}>Copy</span>;
+const Clipboard = ({ className }: { className?: string }) => <span className={className}>Paste</span>;
+const MoreVertical = ({ className }: { className?: string }) => <span className={className}>More</span>;
+const Plus = ({ className }: { className?: string }) => <span className={className}>Add</span>;
+const ArrowUp = ({ className }: { className?: string }) => <span className={className}>Up</span>;
+const ArrowDown = ({ className }: { className?: string }) => <span className={className}>Down</span>;
+const ArrowLeft = ({ className }: { className?: string }) => <span className={className}>Left</span>;
+const ArrowRight = ({ className }: { className?: string }) => <span className={className}>Right</span>;
+const Columns = ({ className }: { className?: string }) => <span className={className}>Columns</span>;
+const Rows = ({ className }: { className?: string }) => <span className={className}>Rows</span>;
+
+// export function cn(...inputs: (string | undefined | null | false)[]) {
+//   return twMerge(clsx(inputs));
+// }
+
+// Simple className merger for now
 export function cn(...inputs: (string | undefined | null | false)[]) {
-  return twMerge(clsx(inputs));
+  return inputs.filter(Boolean).join(' ');
 }
 
 interface SpreadsheetGridProps {
@@ -37,19 +56,20 @@ export default function SpreadsheetGrid({ sheet }: SpreadsheetGridProps) {
     return sheet.rows.map((r, idx) => ({ r: r, idx }));
   }, [sheet.rows, isRaw, state.showFlaggedOnly, sheet.flaggedRows]);
 
-  const rowVirtualizer = useVirtualizer({
-    count: displayedRows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 32,
-    overscan: 20,
-  });
+  // Temporarily disable virtualization to reduce dependencies
+  // const rowVirtualizer = useVirtualizer({
+  //   count: displayedRows.length,
+  //   getScrollElement: () => parentRef.current,
+  //   estimateSize: () => 32,
+  //   overscan: 20,
+  // });
 
-  const colVirtualizer = useVirtualizer({
-    horizontal: true,
-    count: headers.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: (index) => sheet.colWidths[index] || 150,
-  });
+  // const colVirtualizer = useVirtualizer({
+  //   horizontal: true,
+  //   count: headers.length,
+  //   getScrollElement: () => parentRef.current,
+  //   estimateSize: (index) => sheet.colWidths[index] || 150,
+  // });
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -651,31 +671,21 @@ export default function SpreadsheetGrid({ sheet }: SpreadsheetGridProps) {
         className="flex-1 w-full h-full overflow-auto bg-white select-none relative outline-none"
         tabIndex={0}
       >
-        <div style={{
-          height: `${rowVirtualizer.getTotalSize() + 32}px`,
-          width: `${colVirtualizer.getTotalSize()}px`,
-          position: 'relative',
-        }}>
+        <div className="min-w-full">
           {/* Header Row */}
-          <div className="absolute top-0 left-0 w-full h-8 flex text-xs font-semibold text-neutral-700 bg-neutral-100 border-b border-neutral-300 z-20">
-            {colVirtualizer.getVirtualItems().map((virtualColumn) => (
+          <div className="sticky top-0 w-full h-8 flex text-xs font-semibold text-neutral-700 bg-neutral-100 border-b border-neutral-300 z-20">
+            {headers.map((header, index) => (
               <div
-                key={virtualColumn.index}
-                className="absolute top-0 h-full px-2 py-1.5 flex items-center border-r border-neutral-300 bg-neutral-100"
-                style={{
-                  left: 0,
-                  transform: `translateX(${virtualColumn.start}px)`,
-                  width: `${virtualColumn.size}px`,
-                }}
+                key={index}
+                className="h-full px-2 py-1.5 flex items-center border-r border-neutral-300 bg-neutral-100 min-w-[150px]"
               >
-                <div className="truncate w-full">{headers[virtualColumn.index]}</div>
+                <div className="truncate w-full">{header}</div>
               </div>
             ))}
           </div>
 
           {/* Grid Rows */}
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-             const rowData = displayedRows[virtualRow.index];
+          {displayedRows.map((rowData, rowIndex) => {
              const rawIndex = rowData.idx;
              const cells = rowData.r;
              const confidenceScore = isRaw ? getConfidenceScore(cells) : null;
@@ -689,21 +699,16 @@ export default function SpreadsheetGrid({ sheet }: SpreadsheetGridProps) {
 
              return (
               <div
-                key={virtualRow.index}
-                className={cn("absolute left-0 w-full flex text-xs border-b border-neutral-200 hover:bg-neutral-50", 
-                  virtualRow.index % 2 === 1 && "bg-neutral-50",
+                key={rowIndex}
+                className={cn("w-full flex text-xs border-b border-neutral-200 hover:bg-neutral-50", 
+                  rowIndex % 2 === 1 && "bg-neutral-50",
                   confidenceClass,
                   isRaw && sheet.flaggedRows[rawIndex] && "bg-rose-100 hover:bg-rose-100"
                 )}
-                style={{
-                  top: 0,
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start + 32}px)`,
-                }}
                 title={confidenceScore !== null ? `Confidence: ${confidenceScore.toFixed(0)}%` : undefined}
               >
-                {colVirtualizer.getVirtualItems().map((virtualColumn) => {
-                  const cIndex = virtualColumn.index;
+                {headers.map((header, colIndex) => {
+                  const cIndex = colIndex;
                   const realCol = isRaw ? cIndex - 1 : cIndex;
                   const isFlagCol = isRaw && cIndex === 0;
                   
@@ -727,15 +732,12 @@ export default function SpreadsheetGrid({ sheet }: SpreadsheetGridProps) {
                     <div
                       key={cIndex}
                       className={cn(
-                        "absolute top-0 h-full border-r border-neutral-200 px-2 py-1 flex items-center bg-transparent transition-colors",
+                        "h-full border-r border-neutral-200 px-2 py-1 flex items-center bg-transparent transition-colors min-w-[150px]",
                         selected && "bg-blue-100/50 outline outline-1 outline-blue-500 z-10",
                         customStyle.bg && !selected ? "" : "",
                         isFlagCol && "justify-center"
                       )}
                       style={{
-                        left: 0,
-                        transform: `translateX(${virtualColumn.start}px)`,
-                        width: `${virtualColumn.size}px`,
                         backgroundColor: !selected && customStyle.bg ? customStyle.bg : undefined,
                         color: customStyle.color,
                         fontWeight: customStyle.bold ? 'bold' : 'normal',

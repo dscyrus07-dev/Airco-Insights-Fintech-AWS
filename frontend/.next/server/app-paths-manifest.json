@@ -1,1 +1,15 @@
-{}
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/jobs/[jobId]/download/route": "app/api/jobs/[jobId]/download/route.js",
+  "/api/download/[filename]/route": "app/api/download/[filename]/route.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/api/auth/refresh/route": "app/api/auth/refresh/route.js",
+  "/api/profile/history/route": "app/api/profile/history/route.js",
+  "/api/unlock-pdf/route": "app/api/unlock-pdf/route.js",
+  "/api/upload/route": "app/api/upload/route.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/api/jobs/[jobId]/route": "app/api/jobs/[jobId]/route.js",
+  "/api/check-pdf/route": "app/api/check-pdf/route.js",
+  "/page": "app/page.js",
+  "/api/sync/route": "app/api/sync/route.js"
+}

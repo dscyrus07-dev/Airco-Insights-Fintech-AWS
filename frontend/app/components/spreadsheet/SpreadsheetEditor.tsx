@@ -6,7 +6,7 @@ import { useSpreadsheet } from './SpreadsheetContext';
 import SpreadsheetToolbar from './SpreadsheetToolbar';
 import SpreadsheetGrid from './SpreadsheetGrid';
 import SpreadsheetHistory from './SpreadsheetHistory';
-import { exportToExcel } from '@/utils/excelExport';
+// import { exportToExcel } from '@/utils/excelExport';
 import { Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 
 interface SpreadsheetEditorProps {
@@ -73,12 +73,15 @@ export default function SpreadsheetEditor({ initialResult, onExit, apiKey }: Spr
   const handleDownloadExcel = async () => {
     setIsDownloading(true);
     try {
-      await exportToExcel(state);
+      // await exportToExcel(state);
+      // TODO: Re-enable Excel export when disk space is available
+      setToastMessage({ text: 'Excel export temporarily disabled', type: 'error' });
     } catch (e) {
       console.error(e);
       setToastMessage({ text: 'Download Failed', type: 'error' });
+    } finally {
+      setIsDownloading(false);
     }
-    setIsDownloading(false);
   };
 
   const handleSaveChanges = async () => {

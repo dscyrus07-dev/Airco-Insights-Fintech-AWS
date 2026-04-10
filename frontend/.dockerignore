@@ -1,5 +1,10 @@
 .git
-.next
+.next/cache
+.next/server
+.next/types
+.next/*.json
+.next/*.nft.json
+.next/trace
 node_modules
 __pycache__
 *.log
