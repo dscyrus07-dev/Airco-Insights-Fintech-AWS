@@ -135,13 +135,18 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}
 
   minio:
-    ports: []
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     expose:
       - "9000"
       - "9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-s3-access}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-s3-secret}
+      MINIO_SERVER_URL: https://${MINIO_PUBLIC_DOMAIN:-minio.theairco.ai}
+      # MinIO requires a trailing slash when the console is served from a subpath.
+      MINIO_BROWSER_REDIRECT_URL: https://${MINIO_PUBLIC_DOMAIN:-minio.theairco.ai}/minio/ui/
 
   nginx:
     build:
@@ -162,9 +167,11 @@ services:
       - "443:443"
     environment:
       AIRCO_PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-test.theairco.ai}
+      AIRCO_MINIO_PUBLIC_DOMAIN: ${MINIO_PUBLIC_DOMAIN:-minio.theairco.ai}
       AIRCO_SSL_CERT_PATH: /etc/airco/ssl/fullchain.pem
       AIRCO_SSL_KEY_PATH: /etc/airco/ssl/privkey.pem
-    volumes:
+    volumes: !override
+      - ${CERTBOT_WEBROOT_DIR:-/opt/airco/certbot}:/var/www/certbot:ro
       - ${SSL_CERTS_DIR:-/opt/airco/ssl}:/etc/airco/ssl:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q --no-check-certificate -O - https://localhost/health >/dev/null 2>&1 || exit 1"]

@@ -13,7 +13,7 @@ from typing import Optional
 from ...models.job import Job, JobType, JobStatus
 from ...services.redis_job_store import redis_job_store
 from ...services.task_processor import task_processor
-from ...services.message_queue import message_queue
+from ...services.event_publisher import event_publisher
 from ...services.file_history_service import file_history_service
 from ...dependencies.auth import get_current_user_optional
 from ...utils.file_handler import upload_to_minio
@@ -67,6 +67,8 @@ async def upload_bank_statement_async(
     account_type: str = Form(default=""),
     mode: str = Form(default="free"),
     api_key: Optional[str] = Form(None),
+    batch_id: Optional[str] = Form(None),
+    statement_label: Optional[str] = Form(None),
 ):
     """
     Async upload endpoint that returns a job ID.
@@ -74,6 +76,7 @@ async def upload_bank_statement_async(
     Processing happens in background; poll /api/jobs/{job_id} for status.
     """
     logger.info("Async upload received", bank_name=bank_name, filename=file.filename)
+    account_type = (account_type or "").strip().lower()
     user_id = (
         (current_user or {}).get("id")
         or request.headers.get("X-Airco-User-Id")
@@ -109,6 +112,8 @@ async def upload_bank_statement_async(
         "full_name": full_name,
         "account_type": account_type,
         "bank_name": bank_name,
+        "batch_id": batch_id,
+        "statement_label": statement_label,
     }
     
     # Create job
@@ -125,6 +130,8 @@ async def upload_bank_statement_async(
             "api_key": api_key,
             "original_filename": file.filename,
             "upload_object_key": upload_object_key,
+            "batch_id": batch_id,
+            "statement_label": statement_label,
         }
     )
     
@@ -138,27 +145,25 @@ async def upload_bank_statement_async(
         full_name=full_name or None,
         account_type=account_type or None,
         bank_name=bank_name or None,
+        batch_id=batch_id,
+        statement_label=statement_label,
         mode=mode or None,
         original_filename=file.filename or "statement.pdf",
         upload_object_key=upload_object_key,
     )
 
     # Prefer RabbitMQ; fall back to the local processor if queue is unavailable
-    published = await message_queue.publish_message(
-        exchange="file_processing",
-        routing_key="file.uploaded",
-        message={
-            "job_id": job.id,
-            "correlation_id": job.correlation_id,
-            "file_path": file_path,
-            "user_info": user_info,
-            "mode": mode,
-            "api_key": api_key,
-            "bank_name": bank_name,
-            "user_id": user_id,
-            "original_filename": file.filename,
-            "upload_object_key": upload_object_key,
-        },
+    published = await event_publisher.publish_file_processing_request(
+        job_id=job.id,
+        file_path=file_path,
+        user_info=user_info,
+        mode=mode,
+        correlation_id=job.correlation_id,
+        api_key=api_key,
+        bank_name=bank_name,
+        user_id=user_id,
+        original_filename=file.filename,
+        upload_object_key=upload_object_key,
     )
 
     if not published:

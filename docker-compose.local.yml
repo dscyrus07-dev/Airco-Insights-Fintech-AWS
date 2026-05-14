@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  backend:
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/airco_app}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      TEMP_DIR: /app/tmp
+      PYTHONUNBUFFERED: "1"
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8001}
+      FILE_SERVICE_URL: ${FILE_SERVICE_URL:-http://file-service:8002}
+      PDF_SERVICE_URL: ${PDF_SERVICE_URL:-http://pdf-service:8003}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8004}
+      REPORT_SERVICE_URL: ${REPORT_SERVICE_URL:-http://report-service:8005}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - backend_tmp:/app/tmp
+
+  frontend:
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
+      NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-airco-insights}
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-frontend-app}
+
+  auth-service:
+    ports:
+      - "8001:8001"
+    environment:
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/auth_db}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-airco-insights}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-frontend-app}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-airco-frontend-secret}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-dev-jwt-secret-change-in-production}
+
+  file-service:
+    ports:
+      - "8002:8002"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      S3_BUCKET: airco-files
+
+  pdf-service:
+    ports:
+      - "8003:8003"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      S3_BUCKET: airco-files
+
+  ai-service:
+    ports:
+      - "8004:8004"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+
+  report-service:
+    ports:
+      - "8005:8005"
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      S3_BUCKET: airco-files
+
+  keycloak:
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: change-me-keycloak-admin
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: change-me-keycloak-db
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8080
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_PROXY: edge
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  app-postgres:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME:-airco_app}
+      POSTGRES_USER: ${APP_DB_USER:-airco}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-change-me-app-db-password}

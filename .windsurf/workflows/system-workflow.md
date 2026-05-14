@@ -263,3 +263,40 @@ Reports: users/{user_id}/reports/{bank}_report_{uuid}.xlsx
 **Last Updated**: April 2026  
 **Version**: 2.0.0  
 **Maintainer**: Airco Insights Team
+## OCR Processing Workflow (Detailed)
+
+### PDF Upload to Processing Flow
+```
+POST /process (upload.py)
+    |
+    v
+File Validation + MinIO Storage
+    |
+    v
+Pipeline Orchestrator (pipeline_orchestrator.py)
+    |   - Bank routing logic
+    |   - Bank name normalization
+    v
+Bank-Specific Processor
+    |   HDFC: 11-step pipeline
+    |   Axis: 7-step pipeline  
+    |   ICICI: 7-step pipeline
+    v
+Transaction Extraction
+    |   Method 1: Table-based (pdfplumber)
+    |   Method 2: Coordinate-based (PyMuPDF)
+    v
+Excel Report Generation
+```
+
+### Bank Coordinate Mappings
+| Bank | Date | Narration | Ref/Mode | Withdrawal | Deposit | Balance |
+|------|------|-----------|----------|-----------|----------|---------|
+| HDFC | x < 65 | 65-260 | 260-360 | 405-485 | 485-562 | x >= 562 |
+| Axis | x < 90 | 132-340 | 90-132 | 340-400 | 400-460 | 460-535 |
+| ICICI | x < 70 | 130-380 | 70-130 | 435-540 | 380-435 | x >= 540 |
+
+### Risk Assessment
+- **HIGH**: Hardcoded coordinates break if PDF format changes
+- **MEDIUM**: Axis/ICICI have no table-based fallback
+- **LOW**: HDFC has dual-method extraction

@@ -45,6 +45,8 @@ class UserFileRecord(Base):
     full_name = Column(String(255), nullable=True)
     account_type = Column(String(50), nullable=True)
     bank_name = Column(String(100), nullable=True)
+    batch_id = Column(String(64), nullable=True, index=True)
+    statement_label = Column(String(255), nullable=True)
     mode = Column(String(50), nullable=True)
     original_filename = Column(String(255), nullable=False)
     upload_object_key = Column(String(512), nullable=True)

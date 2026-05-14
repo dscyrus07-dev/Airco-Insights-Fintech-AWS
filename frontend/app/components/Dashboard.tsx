@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { buildUserHeadersFromToken, getValidSessionAccessToken } from '../../lib/sessionToken'
 import Header from './Header'
@@ -16,7 +16,7 @@ import {
   Trash2,
   UserCircle2,
 } from 'lucide-react'
-import { UserDetails, ProcessingResult, ProcessingMode, Step, JobSubmitted, ProfileHistoryResponse } from '@/types'
+import { AccountType, BankStatementFileItem, UserDetails, ProcessingResult, ProcessingMode, Step, JobSubmitted, ProfileHistoryResponse, UserUploadHistoryItem, UserReportHistoryItem } from '@/types'
 
 const BANKS = [
   { name: 'HDFC Bank', available: true },
@@ -27,6 +27,20 @@ const BANKS = [
   { name: 'PNB', available: false },
   { name: 'Bank of Baroda', available: false },
 ]
+
+type BatchResultItem = {
+  id: string
+  bankName: string
+  fileName: string
+  result: ProcessingResult
+}
+
+const formatBatchLabel = (batchId: string) => {
+  if (!batchId) return 'Unknown batch'
+  return batchId.length > 18 ? `${batchId.slice(0, 18)}…` : batchId
+}
+
+const createBatchId = () => `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 const APP_API_BASE = '/api'
 
@@ -40,9 +54,14 @@ export default function Dashboard() {
     fullName: '',
     accountType: '',
     bankName: '',
+    selectedBanks: [],
   })
-  const [file, setFile] = useState<File | null>(null)
-  const [pdfPassword, setPdfPassword] = useState<string | undefined>(undefined)
+  const [filesByBank, setFilesByBank] = useState<Record<string, BankStatementFileItem[]>>({})
+  const [batchId, setBatchId] = useState<string>(createBatchId())
+  const [batchQueue, setBatchQueue] = useState<BankStatementFileItem[]>([])
+  const [batchResults, setBatchResults] = useState<BatchResultItem[]>([])
+  const [currentBatchIndex, setCurrentBatchIndex] = useState(0)
+  const [activeBatchFile, setActiveBatchFile] = useState<BankStatementFileItem | null>(null)
   const [mode, setMode] = useState<ProcessingMode>('free')
   const [apiKey, setApiKey] = useState('')
   const [jobId, setJobId] = useState<string | null>(null)
@@ -53,9 +72,11 @@ export default function Dashboard() {
     total_uploads: 0,
     processed_files: 0,
     generated_reports: 0,
+    total_batches: 0,
     latest_account_type: null,
   })
   const [historyUser, setHistoryUser] = useState<ProfileHistoryResponse['user'] | null>(null)
+  const [historyBatches, setHistoryBatches] = useState<NonNullable<ProfileHistoryResponse['batches']>>([])
 
   const handleLogout = useCallback(async () => {
     const confirmed = window.confirm(
@@ -73,6 +94,9 @@ export default function Dashboard() {
     name: string
     bank: string
     date: string
+    batchId?: string | null
+    statementLabel?: string | null
+    accountType?: string | null
     status: 'Processed' | 'Pending' | 'Processing' | 'Failed'
   }>>([])
 
@@ -81,6 +105,9 @@ export default function Dashboard() {
     name: string
     bank: string
     date: string
+    batchId?: string | null
+    statementLabel?: string | null
+    accountType?: string | null
     downloadUrl: string
   }>>([])
 
@@ -89,11 +116,18 @@ export default function Dashboard() {
     if (savedData) {
       try {
         const parsed = JSON.parse(savedData)
-        setUserDetails(parsed.userDetails || {
-          fullName: '',
-          accountType: '',
-          bankName: '',
+        const restoredDetails = parsed.userDetails || {}
+        setUserDetails({
+          fullName: restoredDetails.fullName || '',
+          accountType: restoredDetails.accountType || '',
+          bankName: restoredDetails.bankName || '',
+          selectedBanks: Array.isArray(restoredDetails.selectedBanks)
+            ? restoredDetails.selectedBanks
+            : restoredDetails.bankName
+              ? [restoredDetails.bankName]
+              : [],
         })
+        setFilesByBank({})
         setMode(parsed.mode || 'free')
         setApiKey(parsed.apiKey || '')
         const restoredStep = parsed.step || 1
@@ -132,12 +166,15 @@ export default function Dashboard() {
 
       setHistoryUser(data.user)
       setHistorySummary(data.summary)
+      setHistoryBatches(data.batches || [])
       setUploadedStatements(
         (data.uploads || []).map((item: any) => ({
           id: item.job_id,
           name: item.name,
           bank: item.bank_name || 'Unknown',
           date: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '',
+          batchId: item.batch_id || null,
+          statementLabel: item.statement_label || null,
           status:
             item.status === 'completed'
               ? 'Processed'
@@ -154,6 +191,8 @@ export default function Dashboard() {
           name: item.name,
           bank: item.bank_name || 'Unknown',
           date: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '',
+          batchId: item.batch_id || null,
+          statementLabel: item.statement_label || null,
           downloadUrl: `/api/jobs/${item.job_id}/download`,
         }))
       )
@@ -168,39 +207,126 @@ export default function Dashboard() {
 
   const handleUserDetails = (details: UserDetails) => {
     setUserDetails(details)
+    setFilesByBank((prev) => {
+      const next: Record<string, BankStatementFileItem[]> = {}
+      details.selectedBanks.forEach((bank) => {
+        next[bank] = prev[bank] || []
+      })
+      return next
+    })
     setStep(2)
   }
 
-  const handleFileSelected = (selectedFile: File, password?: string) => {
-    setFile(selectedFile)
-    setPdfPassword(password)
-    setStep(3)
+  const handleFilesChange = (nextFilesByBank: Record<string, BankStatementFileItem[]>) => {
+    setFilesByBank(nextFilesByBank)
   }
+
+  const handleUploadContinue = useCallback(() => {
+    const queue = userDetails.selectedBanks.flatMap((bankName) => filesByBank[bankName] || [])
+
+    const missingTypeFile = queue.find((item) => !item.accountType)
+    if (missingTypeFile) {
+      setError(`Please select a bank statement type for ${missingTypeFile.file.name} before continuing.`)
+      return
+    }
+
+    if (queue.length === 0) {
+      setError('Please upload at least one PDF statement before continuing.')
+      return
+    }
+
+    setBatchId(createBatchId())
+    setBatchQueue(queue)
+    setBatchResults([])
+    setCurrentBatchIndex(0)
+    setActiveBatchFile(null)
+    setResult(null)
+    setJobId(null)
+    setError(null)
+    setStep(3)
+  }, [filesByBank, userDetails.selectedBanks])
+
+  const submitBatchItem = useCallback(async (item: BankStatementFileItem, selectedMode: ProcessingMode, key?: string) => {
+    setActiveBatchFile(item)
+    setIsProcessing(true)
+    setError(null)
+
+    const uploadDate = new Date().toISOString().split('T')[0]
+    const uploadId = `${item.id}-${Date.now()}`
+
+    setUploadedStatements((prev) => [...prev, {
+      id: uploadId,
+      name: item.file.name,
+      bank: item.bankName,
+      date: uploadDate,
+      accountType: item.accountType,
+      status: 'Processing',
+    }])
+
+    try {
+      const data = await uploadStatement(
+        {
+          file: item.file,
+          userDetails,
+          mode: selectedMode,
+          apiKey: key,
+          pdfPassword: item.pdfPassword,
+          batchId,
+          statementLabel: item.statementLabel,
+          bankName: item.bankName,
+          accountType: item.accountType,
+        }
+      )
+      setJobId(data.job_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setUploadedStatements((prev) =>
+        prev.map((f) => (f.id === uploadId ? { ...f, status: 'Failed' } : f))
+      )
+      setStep(3)
+      setIsProcessing(false)
+      setJobId(null)
+    }
+  }, [batchId, userDetails])
 
   const handleProcessingComplete = useCallback((data: ProcessingResult) => {
     const uploadDate = new Date().toISOString().split('T')[0]
 
     setResult(data)
     setJobId(null)
-    setStep(5)
-    setIsProcessing(false)
-
-    setUploadedStatements(prev =>
+    setUploadedStatements((prev) =>
       prev.map((f) => (f.status === 'Processing' ? { ...f, status: 'Processed' } : f))
     )
 
-    if (data.excel_url && file) {
-      const reportName = file.name.replace(/\.pdf$/i, '_Report.xlsx')
-      setGeneratedReports(prev => [...prev, {
+    if (data.excel_url && activeBatchFile) {
+      setGeneratedReports((prev) => [...prev, {
         id: `${Date.now()}_report`,
-        name: reportName,
-        bank: userDetails.bankName || 'Unknown',
+        name: activeBatchFile.file.name.replace(/\.pdf$/i, '_Report.xlsx'),
+        bank: activeBatchFile.bankName,
         date: uploadDate,
+        accountType: activeBatchFile.accountType,
         downloadUrl: data.excel_url,
       }])
+      setBatchResults((prev) => [...prev, {
+        id: activeBatchFile.id,
+        bankName: activeBatchFile.bankName,
+        fileName: activeBatchFile.file.name,
+        result: data,
+      }])
     }
+
+    const nextIndex = currentBatchIndex + 1
+    if (nextIndex < batchQueue.length) {
+      setCurrentBatchIndex(nextIndex)
+      void submitBatchItem(batchQueue[nextIndex], mode, apiKey || undefined)
+      return
+    }
+
+    setStep(5)
+    setIsProcessing(false)
+    setActiveBatchFile(null)
     loadProfileHistory()
-  }, [file, userDetails.bankName, loadProfileHistory])
+  }, [activeBatchFile, apiKey, batchQueue, currentBatchIndex, loadProfileHistory, mode, submitBatchItem])
 
   const handleProcessingError = useCallback((message: string) => {
     setError(message)
@@ -214,36 +340,16 @@ export default function Dashboard() {
   }, [loadProfileHistory])
 
   const handleModeSelect = async (selectedMode: ProcessingMode, key?: string) => {
-    if (!file) return
+    if (batchQueue.length === 0) return
 
     setMode(selectedMode)
     if (key) setApiKey(key)
     setIsProcessing(true)
     setError(null)
-
-    const uploadId = Date.now().toString()
-    const uploadDate = new Date().toISOString().split('T')[0]
-
-    setUploadedStatements(prev => [...prev, {
-      id: uploadId,
-      name: file.name,
-      bank: userDetails.bankName || 'Unknown',
-      date: uploadDate,
-      status: 'Processing',
-    }])
-
-    try {
-      const data = await uploadStatement(file, userDetails, selectedMode, key, pdfPassword)
-      setJobId(data.job_id)
-      setStep(4)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
-      setUploadedStatements(prev =>
-        prev.map((f) => (f.id === uploadId ? { ...f, status: 'Failed' } : f))
-      )
-      setStep(3)
-      setIsProcessing(false)
-    }
+    setStep(4)
+    setCurrentBatchIndex(0)
+    setBatchResults([])
+    await submitBatchItem(batchQueue[0], selectedMode, key)
   }
 
   const handleBack = () => {
@@ -254,15 +360,22 @@ export default function Dashboard() {
 
   const handleReset = () => {
     setStep(1)
-    setUserDetails({ fullName: '', accountType: '', bankName: '' })
-    setFile(null)
-    setPdfPassword(undefined)
+    setUserDetails({ fullName: '', accountType: '', bankName: '', selectedBanks: [] })
+    setFilesByBank({})
+    setBatchId(createBatchId())
+    setBatchQueue([])
+    setBatchResults([])
+    setCurrentBatchIndex(0)
+    setActiveBatchFile(null)
     setMode('free')
     setApiKey('')
     setJobId(null)
     setResult(null)
     setError(null)
     setIsProcessing(false)
+    setSelectedFiles(new Set())
+    setUploadedStatements([])
+    setGeneratedReports([])
     localStorage.removeItem('airco-form-data')
   }
 
@@ -294,6 +407,126 @@ export default function Dashboard() {
     || (userDetails.accountType
       ? userDetails.accountType.charAt(0).toUpperCase() + userDetails.accountType.slice(1)
       : 'Not set')
+  const profileBatchCount = useMemo(
+    () => historySummary.total_batches ?? historyBatches.length,
+    [historySummary.total_batches, historyBatches.length]
+  )
+
+  const getVisibleHistoryIds = useCallback((tab: 'uploaded' | 'reports') => {
+    if (historyBatches.length > 0) {
+      if (tab === 'uploaded') {
+        return historyBatches.flatMap((batch) => batch.uploads.map((item) => item.job_id))
+      }
+
+      return historyBatches.flatMap((batch) => batch.reports.map((item) => item.job_id))
+    }
+
+    return tab === 'uploaded'
+      ? uploadedStatements.map((item) => item.id)
+      : generatedReports.map((item) => item.id)
+  }, [generatedReports, historyBatches, uploadedStatements])
+
+  const renderHistoryRow = (
+    item: UserUploadHistoryItem | UserReportHistoryItem,
+    tab: 'uploaded' | 'reports',
+  ) => {
+    const isUpload = tab === 'uploaded'
+    const itemId = item.job_id
+    const createdLabel = item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Unknown date'
+    const bankLabel = item.bank_name || 'Unknown bank'
+    const accountTypeLabel = isUpload && (item as UserUploadHistoryItem).account_type
+      ? ` • ${(item as UserUploadHistoryItem).account_type}`
+      : ''
+    const statementLabel = item.statement_label ? ` • ${item.statement_label}` : ''
+
+    return (
+      <div
+        key={itemId}
+        className="group flex items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-neutral-50"
+      >
+        <input
+          type="checkbox"
+          checked={selectedFiles.has(itemId)}
+          onChange={(e) => {
+            const newSelected = new Set(selectedFiles)
+            if (e.target.checked) {
+              newSelected.add(itemId)
+            } else {
+              newSelected.delete(itemId)
+            }
+            setSelectedFiles(newSelected)
+          }}
+          className="h-4 w-4 rounded border-neutral-300 text-black focus:ring-black"
+        />
+        <div className={`flex h-8 w-8 items-center justify-center rounded ${isUpload ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+          {isUpload ? <FileText className="h-4 w-4" /> : <FileSpreadsheet className="h-4 w-4" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="truncate text-sm font-medium text-black">{item.name}</p>
+          <p className="text-xs text-neutral-500">
+            {bankLabel}{accountTypeLabel}{statementLabel} • {createdLabel}
+          </p>
+        </div>
+        {isUpload ? (
+          <div
+            className={`h-2 w-2 rounded-full ${
+              (item as UserUploadHistoryItem).status === 'Processed' ? 'bg-green-500' :
+              (item as UserUploadHistoryItem).status === 'Processing' ? 'bg-yellow-500' :
+              (item as UserUploadHistoryItem).status === 'Failed' ? 'bg-red-500' :
+              'bg-neutral-300'
+            }`}
+          />
+        ) : (
+          <a
+            href={`/api/jobs/${itemId}/download`}
+            download
+            className="p-1 rounded text-neutral-400 hover:text-black transition"
+          >
+            <Download className="h-4 w-4" />
+          </a>
+        )}
+        <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
+          <button
+            onClick={async () => {
+              const confirmed = window.confirm(
+                `Are you sure you want to delete "${item.name}"?`
+              )
+              if (!confirmed) return
+
+              try {
+                const token = await getValidSessionAccessToken()
+                const headers: Record<string, string> = token
+                  ? { Authorization: `Bearer ${token}`, ...buildUserHeadersFromToken(token) }
+                  : {}
+
+                const response = await fetch(`${APP_API_BASE}/profile/files/${itemId}`, {
+                  method: 'DELETE',
+                  headers,
+                })
+
+                if (response.ok) {
+                  setSelectedFiles((prev) => {
+                    const next = new Set(prev)
+                    next.delete(itemId)
+                    return next
+                  })
+                  loadProfileHistory()
+                } else {
+                  alert(`Failed to delete ${isUpload ? 'file' : 'report'}. Please try again.`)
+                }
+              } catch (deleteError) {
+                console.error(`Failed to delete ${isUpload ? 'file' : 'report'}:`, deleteError)
+                alert(`Failed to delete ${isUpload ? 'file' : 'report'}. Please try again.`)
+              }
+            }}
+            className="p-1 rounded text-neutral-400 hover:text-red-600 transition"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-white">
@@ -331,17 +564,37 @@ export default function Dashboard() {
               )}
 
               {step === 1 && <StepForm onSubmit={handleUserDetails} initialDetails={userDetails} />}
-              {step === 2 && <UploadStep onUpload={handleFileSelected} isProcessing={false} />}
-              {step === 3 && <ModeSelection onSelect={handleModeSelect} isProcessing={isProcessing} />}
-              {step === 4 && jobId && (
-                <ProcessingStep
-                  jobId={jobId}
-                  mode={mode}
-                  onComplete={handleProcessingComplete}
-                  onError={handleProcessingError}
+              {step === 2 && (
+                <UploadStep
+                  selectedBanks={userDetails.selectedBanks}
+                  filesByBank={filesByBank}
+                  onFilesChange={handleFilesChange}
+                  onContinue={handleUploadContinue}
+                  isProcessing={false}
                 />
               )}
-              {step === 5 && result && <ResultStep result={result} />}
+              {step === 3 && <ModeSelection onSelect={handleModeSelect} isProcessing={isProcessing} />}
+              {step === 4 && jobId && (
+                <div className="space-y-4">
+                  {batchQueue.length > 1 && activeBatchFile && (
+                    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                        Batch progress
+                      </p>
+                      <p className="mt-1 text-sm text-black">
+                        Processing {currentBatchIndex + 1} of {batchQueue.length}: {activeBatchFile.statementLabel}
+                      </p>
+                    </div>
+                  )}
+                  <ProcessingStep
+                    jobId={jobId}
+                    mode={mode}
+                    onComplete={handleProcessingComplete}
+                    onError={handleProcessingError}
+                  />
+                </div>
+              )}
+              {step === 5 && result && <ResultStep result={result} batchResults={batchResults} />}
 
               {step !== 4 && (
                 <div className="mt-6 flex items-center justify-between border-t border-neutral-100 pt-4">
@@ -372,7 +625,7 @@ export default function Dashboard() {
                 Airco Insights - Financial Categorization Engine
               </p>
               <p className="mx-auto max-w-lg text-[11px] leading-relaxed text-neutral-400">
-                Upload your bank statement PDF and get a fully categorized, structured Excel report -
+                Upload one or more bank statement PDFs and get fully categorized, structured Excel reports -
                 with monthly summaries, category breakdowns, recurring transaction detection, and weekly analysis.
                 No data is stored. Processing happens in real time.
               </p>
@@ -449,7 +702,7 @@ export default function Dashboard() {
                       <span className="text-sm text-neutral-600">Account Type</span>
                       <span className="text-sm font-medium text-black">{accountTypeLabel}</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <div className="rounded-xl bg-white px-3 py-3 text-center shadow-sm ring-1 ring-neutral-100">
                         <p className="text-lg font-semibold text-black">{historySummary.total_uploads}</p>
                         <p className="text-[11px] text-neutral-500">Uploads</p>
@@ -461,6 +714,10 @@ export default function Dashboard() {
                       <div className="rounded-xl bg-white px-3 py-3 text-center shadow-sm ring-1 ring-neutral-100">
                         <p className="text-lg font-semibold text-black">{historySummary.generated_reports}</p>
                         <p className="text-[11px] text-neutral-500">Reports</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-3 text-center shadow-sm ring-1 ring-neutral-100">
+                        <p className="text-lg font-semibold text-black">{profileBatchCount}</p>
+                        <p className="text-[11px] text-neutral-500">Batches</p>
                       </div>
                     </div>
                     <button
@@ -495,10 +752,64 @@ export default function Dashboard() {
 
                   {selectedFiles.size > 0 && (
                     <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2">
-                      <span className="text-sm text-neutral-600">{selectedFiles.size} selected</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-neutral-600">{selectedFiles.size} selected</span>
+                        <button
+                          onClick={() => {
+                            setSelectedFiles(new Set(getVisibleHistoryIds(filesTab)))
+                          }}
+                          className="text-sm text-black hover:text-neutral-700 transition"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          onClick={() => setSelectedFiles(new Set())}
+                          className="text-sm text-black hover:text-neutral-700 transition"
+                        >
+                          Clear Selection
+                        </button>
+                      </div>
                       <button
-                        onClick={() => {
-                          setSelectedFiles(new Set())
+                        onClick={async () => {
+                          const confirmed = window.confirm(
+                            `Are you sure you want to delete ${selectedFiles.size} selected ${filesTab === 'uploaded' ? 'file(s)' : 'report(s)'}?`
+                          )
+                          if (!confirmed) return
+
+                          try {
+                            const token = await getValidSessionAccessToken()
+                            const headers: Record<string, string> = token
+                              ? { Authorization: `Bearer ${token}`, ...buildUserHeadersFromToken(token) }
+                              : {}
+
+                            // Delete selected items from backend
+                            const deletePromises = Array.from(selectedFiles).map(async (id) => {
+                              const response = await fetch(`${APP_API_BASE}/profile/files/${id}`, {
+                                method: 'DELETE',
+                                headers,
+                              })
+                              if (!response.ok) {
+                                console.warn(`Failed to delete item ${id}`)
+                              }
+                              return response
+                            })
+
+                            await Promise.all(deletePromises)
+
+                            // Update local state
+                            if (filesTab === 'uploaded') {
+                              setUploadedStatements(prev => prev.filter(f => !selectedFiles.has(f.id)))
+                            } else {
+                              setGeneratedReports(prev => prev.filter(f => !selectedFiles.has(f.id)))
+                            }
+                            setSelectedFiles(new Set())
+                            
+                            // Reload history to sync with backend
+                            loadProfileHistory()
+                          } catch (error) {
+                            console.error('Failed to delete items:', error)
+                            alert('Failed to delete some items. Please try again.')
+                          }
                         }}
                         className="text-sm text-red-600 hover:text-red-700 transition"
                       >
@@ -508,7 +819,76 @@ export default function Dashboard() {
                   )}
 
                   <div className="space-y-1">
-                    {filesTab === 'uploaded' ? (
+                    {historyBatches.length > 0 ? (
+                      <div className="space-y-3">
+                        {historyBatches.map((batch, batchIndex) => {
+                          return (
+                            <details
+                              key={batch.batch_id}
+                              open={batchIndex === 0}
+                              className="rounded-xl border border-neutral-200 bg-white shadow-sm"
+                            >
+                              <summary className="cursor-pointer list-none px-4 py-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-black">
+                                      {formatBatchLabel(batch.batch_id)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-neutral-500">
+                                      {batch.statement_count} statement(s) • {batch.processed_count} processed • {batch.failed_count} failed
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap justify-end gap-1.5">
+                                    {batch.bank_names.map((bankName) => (
+                                      <span key={bankName} className="rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] text-neutral-500">
+                                        {bankName}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </summary>
+                              <div className="border-t border-neutral-100 p-3 space-y-3">
+                                {(batch.bank_groups || []).map((bankGroup, bankIndex) => {
+                                  const bankItems = filesTab === 'uploaded' ? bankGroup.uploads : bankGroup.reports
+                                  return (
+                                    <details
+                                      key={bankGroup.bank_name}
+                                      open={batchIndex === 0 && bankIndex === 0}
+                                      className="rounded-lg border border-neutral-100 bg-neutral-50"
+                                    >
+                                      <summary className="cursor-pointer list-none px-3 py-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div>
+                                            <p className="text-sm font-medium text-black">{bankGroup.bank_name}</p>
+                                            <p className="text-[11px] text-neutral-500">
+                                              {bankGroup.statement_count} statement(s) • {bankGroup.processed_count} processed
+                                            </p>
+                                          </div>
+                                          <span className="text-[10px] uppercase tracking-wide text-neutral-400">
+                                            {bankItems.length} visible
+                                          </span>
+                                        </div>
+                                      </summary>
+                                      <div className="border-t border-neutral-200 px-2 py-2 space-y-1">
+                                        {bankItems.length > 0 ? (
+                                          bankItems.map((item) => renderHistoryRow(item, filesTab))
+                                        ) : (
+                                          <div className="flex items-center justify-center py-6 text-center">
+                                            <span className="text-sm text-neutral-400">
+                                              No {filesTab === 'uploaded' ? 'uploads' : 'reports'} in this bank section
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </details>
+                                  )
+                                })}
+                              </div>
+                            </details>
+                          )
+                        })}
+                      </div>
+                    ) : filesTab === 'uploaded' ? (
                       uploadedStatements.length > 0 ? (
                         uploadedStatements.map((item) => (
                           <div
@@ -544,7 +924,34 @@ export default function Dashboard() {
                             }`} />
                             <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
                               <button
-                                onClick={() => setUploadedStatements(prev => prev.filter((f) => f.id !== item.id))}
+                                onClick={async () => {
+                                  const confirmed = window.confirm(
+                                    `Are you sure you want to delete "${item.name}"?`
+                                  )
+                                  if (!confirmed) return
+
+                                  try {
+                                    const token = await getValidSessionAccessToken()
+                                    const headers: Record<string, string> = token
+                                      ? { Authorization: `Bearer ${token}`, ...buildUserHeadersFromToken(token) }
+                                      : {}
+
+                                    const response = await fetch(`${APP_API_BASE}/profile/files/${item.id}`, {
+                                      method: 'DELETE',
+                                      headers,
+                                    })
+
+                                    if (response.ok) {
+                                      setUploadedStatements(prev => prev.filter((f) => f.id !== item.id))
+                                      loadProfileHistory()
+                                    } else {
+                                      alert('Failed to delete file. Please try again.')
+                                    }
+                                  } catch (error) {
+                                    console.error('Failed to delete file:', error)
+                                    alert('Failed to delete file. Please try again.')
+                                  }
+                                }}
                                 className="p-1 rounded text-neutral-400 hover:text-red-600 transition"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -595,7 +1002,34 @@ export default function Dashboard() {
                                 <Download className="h-4 w-4" />
                               </a>
                               <button
-                                onClick={() => setGeneratedReports(prev => prev.filter((r) => r.id !== item.id))}
+                                onClick={async () => {
+                                  const confirmed = window.confirm(
+                                    `Are you sure you want to delete "${item.name}"?`
+                                  )
+                                  if (!confirmed) return
+
+                                  try {
+                                    const token = await getValidSessionAccessToken()
+                                    const headers: Record<string, string> = token
+                                      ? { Authorization: `Bearer ${token}`, ...buildUserHeadersFromToken(token) }
+                                      : {}
+
+                                    const response = await fetch(`${APP_API_BASE}/profile/files/${item.id}`, {
+                                      method: 'DELETE',
+                                      headers,
+                                    })
+
+                                    if (response.ok) {
+                                      setGeneratedReports(prev => prev.filter((r) => r.id !== item.id))
+                                      loadProfileHistory()
+                                    } else {
+                                      alert('Failed to delete report. Please try again.')
+                                    }
+                                  } catch (error) {
+                                    console.error('Failed to delete report:', error)
+                                    alert('Failed to delete report. Please try again.')
+                                  }
+                                }}
                                 className="p-1 rounded text-neutral-400 hover:text-red-600 transition"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -621,19 +1055,35 @@ export default function Dashboard() {
   )
 }
 
-async function uploadStatement(
-  file: File,
-  userDetails: UserDetails,
-  mode: ProcessingMode,
-  apiKey?: string,
-  pdfPassword?: string,
-): Promise<JobSubmitted> {
+async function uploadStatement({
+  file,
+  userDetails,
+  mode,
+  apiKey,
+  pdfPassword,
+  batchId,
+  statementLabel,
+  bankName,
+  accountType,
+}: {
+  file: File
+  userDetails: UserDetails
+  mode: ProcessingMode
+  apiKey?: string
+  pdfPassword?: string
+  batchId?: string
+  statementLabel?: string
+  bankName?: string
+  accountType?: AccountType | ''
+}): Promise<JobSubmitted> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('full_name', userDetails.fullName || '')
-  formData.append('account_type', userDetails.accountType || '')
-  formData.append('bank_name', userDetails.bankName || '')
+  formData.append('account_type', accountType || userDetails.accountType || '')
+  formData.append('bank_name', bankName || userDetails.bankName || '')
   formData.append('mode', mode)
+  if (batchId) formData.append('batch_id', batchId)
+  if (statementLabel) formData.append('statement_label', statementLabel)
   if (apiKey) formData.append('api_key', apiKey)
   if (pdfPassword) formData.append('pdf_password', pdfPassword)
 

@@ -182,41 +182,26 @@ MinIO (Object Storage)
     +-- Temporary Processing Files
 ```
 
-### Message Queue Architecture
+#
+## Message Queue Architecture
+
+### Current Implementation (Phase 1)
+- **Redis**: Used for job persistence and tracking
+- **Task Processor**: Asyncio-based, not RabbitMQ
+- **Job Storage**: Redis-backed with 24-hour TTL
+- **Processing**: Synchronous in main thread
+
+### RabbitMQ Infrastructure (Phase 2 - Ready)
+- **Exchanges**: file_processing, pdf_processing, ai_processing, report_processing
+- **Queues**: file_upload_queue, pdf_processing_queue, ai_analysis_queue, report_generation_queue
+- **Status**: Infrastructure exists but not integrated
+- **Next Steps**: Migrate to event-driven processing
+
+### Processing Flow
 ```
-RabbitMQ Event Bus
-    |
-    +-- file.uploaded (File Service)
-    +-- pdf.processed (PDF Service)
-    +-- ai.analyzed (AI Service)
-    +-- report.generated (Report Service)
-    |
-    +-- Error Handling Queues
-    +-- Retry Logic Queues
-    +-- Dead Letter Queues
+Current: Upload -> Direct Processing -> Immediate Response
+Future:  Upload -> RabbitMQ Queue -> Background Worker -> Poll Results
 ```
-
-### Service Communication Patterns
-
-#### Synchronous Communication
-- Frontend to Backend APIs
-- Health checks and status endpoints
-- Configuration and metadata queries
-
-#### Asynchronous Communication
-- File processing pipeline events
-- Service-to-service notifications
-- Error handling and retry logic
-
-#### Request-Response Pattern
-- API calls with immediate responses
-- Authentication token validation
-- Configuration and status queries
-
-#### Event-Driven Pattern
-- File upload processing pipeline
-- Service coordination events
-- Error handling and recovery
 
 ## Folder Structure Architecture
 

@@ -40,8 +40,8 @@ class Settings:
     
     @property
     def keycloak_oidc_url(self) -> str:
-        """Get Keycloak OIDC endpoint URL."""
-        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect"
+        """Get Keycloak OIDC endpoint URL (uses internal URL for container-to-container calls)."""
+        return f"{self.KEYCLOAK_INTERNAL_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect"
     
     @property
     def keycloak_jwks_url(self) -> str:

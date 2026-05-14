@@ -32,6 +32,7 @@ from app.services.pipeline_orchestrator import (
     PipelineValidationError,
     PipelineAbortError,
     UnsupportedBankError,
+    SUPPORTED_BANKS,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,14 +160,16 @@ def _extract_user_id(request: Request) -> str:
 
 
 @router.post("/process")
-async def process_statement_endpoint(
-    request: Request,
-    file: UploadFile = File(...),
-    full_name: str = Form(""),
-    account_type: str = Form("Salaried"),
-    bank_name: str = Form(...),  # Required!
-    mode: str = Form("free"),
-    api_key: Optional[str] = Form(None),
+async def upload_bank_statement(
+    file:         UploadFile = File(...),
+    bank_name:    str        = Form(...),
+    full_name:    str        = Form(default=""),
+    account_type: str        = Form(default=""),
+    batch_id:     str | None = Form(default=None),
+    statement_label: str | None = Form(default=None),
+    current_user: dict       = Form(...),
+    mode:         str        = Form("free"),
+    api_key:      Optional[str] = Form(None),
     pdf_password: Optional[str] = Form(None),  # For password-protected PDFs
 ):
     """
@@ -187,6 +190,7 @@ async def process_statement_endpoint(
         JSON with processed data, validation status, and download URL
     """
     temp_pdf_path = None
+    account_type = (account_type or "").strip().lower()
     
     try:
         # 1. Validate bank name
@@ -208,7 +212,7 @@ async def process_statement_endpoint(
         temp_pdf_path = save_temp_file(content, extension=".pdf")
 
         # 3b. Store uploaded PDF in MinIO airco-files bucket (user-scoped path)
-        user_id = _extract_user_id(request)
+        user_id = _extract_user_id(current_user)
         safe_pdf_name = os.path.basename(file.filename or "statement.pdf")
         upload_to_minio(
             temp_pdf_path,
@@ -249,9 +253,13 @@ async def process_statement_endpoint(
         
         # 5. Build user_info
         user_info = {
-            "full_name": full_name,
+            "full_name": full_name or current_user.get("name", ""),
             "account_type": account_type,
             "bank_name": bank_name,
+            "user_id": current_user.get("id"),
+            "email": current_user.get("email"),
+            "batch_id": batch_id,
+            "statement_label": statement_label,
         }
         
         # 5. Get output directory
@@ -330,7 +338,7 @@ async def process_statement_endpoint(
                 "error": str(e),
                 "stage": e.stage,
                 "code": e.error_code,
-                "supported_banks": ["HDFC Bank"],  # Update as more banks are added
+                "supported_banks": sorted(set(SUPPORTED_BANKS.values())),
             }
         )
     

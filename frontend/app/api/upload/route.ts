@@ -28,6 +28,16 @@ export async function POST(request: NextRequest) {
     backendForm.append('bank_name', (formData.get('bank_name') as string) || '')
     backendForm.append('mode', (formData.get('mode') as string) || 'free')
 
+    const batchId = formData.get('batch_id') as string
+    if (batchId) {
+      backendForm.append('batch_id', batchId)
+    }
+
+    const statementLabel = formData.get('statement_label') as string
+    if (statementLabel) {
+      backendForm.append('statement_label', statementLabel)
+    }
+
     const apiKey = formData.get('api_key') as string
     if (apiKey) {
       backendForm.append('api_key', apiKey)

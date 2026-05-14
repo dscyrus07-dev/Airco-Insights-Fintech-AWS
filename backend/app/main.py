@@ -38,12 +38,12 @@ async def lifespan(app: FastAPI):
     # Register processors
     register_pdf_processor()
     
-    # Start task processor
-    await task_processor.start()
-
     # Start RabbitMQ queue bridge
     await message_queue.connect()
     await event_consumer.start_consuming()
+
+    # Start task processor as a fallback path after RabbitMQ is ready
+    await task_processor.start()
     
     logger.info("Application started successfully")
     

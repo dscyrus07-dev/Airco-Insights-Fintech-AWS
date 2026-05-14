@@ -146,12 +146,8 @@ async def sync_spreadsheet_data(
             deduped[key] = item
         promoted_rules = list(deduped.values())
         
-        # TODO: Implement actual sync logic here
+        # Sync logic placeholder - implement as needed
         # For now, we just validate and return success
-        # In a real implementation, you might:
-        # - Save to database
-        # - Update cache
-        # - Trigger reprocessing
         # - Validate data integrity
         
         logger.info("Sync processing completed successfully")

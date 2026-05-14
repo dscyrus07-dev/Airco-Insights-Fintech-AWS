@@ -5,15 +5,17 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8001:8001"
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       DATABASE_URL: ${AUTH_DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/auth_db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
+      KEYCLOAK_URL: http://localhost:8080
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-airco-insights}
-      KEYCLOAK_CLIENT_ID: ${AUTH_SERVICE_KEYCLOAK_CLIENT_ID:-frontend-app}
-      KEYCLOAK_CLIENT_SECRET: ${AUTH_SERVICE_KEYCLOAK_CLIENT_SECRET:-REPLACE_ME}
+      KEYCLOAK_REALM: airco-insights
+      KEYCLOAK_CLIENT_ID: frontend-app
+      KEYCLOAK_CLIENT_SECRET:   
       DEBUG: "false"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
@@ -30,6 +32,8 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8002:8002"
     environment:
       STORAGE_TYPE: ${STORAGE_TYPE:-minio}
       S3_BUCKET: ${S3_BUCKET:-airco-files}
@@ -37,7 +41,7 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
       S3_REGION: ${S3_REGION:-us-east-1}
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-admin}:${RABBITMQ_DEFAULT_PASS:-admin123}@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       MAX_FILE_SIZE_MB: 20
     healthcheck:
@@ -57,12 +61,14 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8003:8003"
     environment:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-airco-files}
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-admin}:${RABBITMQ_DEFAULT_PASS:-admin123}@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8004}
       MAX_FILE_SIZE_MB: 20
@@ -85,12 +91,14 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8004:8004"
     environment:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-3-sonnet-20240229}
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-admin}:${RABBITMQ_DEFAULT_PASS:-admin123}@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       PDF_SERVICE_URL: ${PDF_SERVICE_URL:-http://pdf-service:8003}
       REPORT_SERVICE_URL: ${REPORT_SERVICE_URL:-http://report-service:8005}
@@ -113,6 +121,8 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8005:8005"
     environment:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -120,7 +130,7 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-airco-reports}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8004}
       PDF_SERVICE_URL: ${PDF_SERVICE_URL:-http://pdf-service:8003}
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-admin}:${RABBITMQ_DEFAULT_PASS:-admin123}@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       DEFAULT_REPORT_FORMAT: excel
       MAX_TRANSACTIONS_PER_REPORT: 1000
@@ -142,6 +152,8 @@ services:
     restart: unless-stopped
     networks:
       - airco-network
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: ${APP_DB_NAME:-airco_app}
       POSTGRES_USER: ${APP_DB_USER:-airco}
@@ -159,6 +171,8 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/airco_app}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -168,16 +182,16 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       TEMP_DIR: /app/tmp
       PYTHONUNBUFFERED: "1"
-      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8001}
-      FILE_SERVICE_URL: ${FILE_SERVICE_URL:-http://file-service:8002}
-      PDF_SERVICE_URL: ${PDF_SERVICE_URL:-http://pdf-service:8003}
-      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8004}
-      REPORT_SERVICE_URL: ${REPORT_SERVICE_URL:-http://report-service:8005}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-admin}:${RABBITMQ_DEFAULT_PASS:-admin123}@rabbitmq:5672/
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      AUTH_SERVICE_URL: http://auth-service:8001
+      FILE_SERVICE_URL: http://file-service:8002
+      PDF_SERVICE_URL: http://pdf-service:8003
+      AI_SERVICE_URL: http://ai-service:8004
+      REPORT_SERVICE_URL: http://report-service:8005
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
     volumes:
       - backend_tmp:/app/tmp
     healthcheck:
@@ -202,21 +216,23 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_AIRCO_API_KEY: ${NEXT_PUBLIC_AIRCO_API_KEY:-}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
-        NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-airco-insights}
-        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-frontend-app}
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
+        NEXT_PUBLIC_KEYCLOAK_REALM: airco-insights
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: frontend-app
     restart: always
     networks:
       - airco-network
+    ports:
+      - "3000:3000"
     environment:
-      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
-      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8001}
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      BACKEND_URL: http://backend:8000
+      AUTH_SERVICE_URL: http://auth-service:8001
+      NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXT_PUBLIC_AIRCO_API_KEY: ${NEXT_PUBLIC_AIRCO_API_KEY:-}
-      NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
-      NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-airco-insights}
-      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-frontend-app}
+      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
+      NEXT_PUBLIC_KEYCLOAK_REALM: airco-insights
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: frontend-app
     depends_on:
       - backend
 
@@ -226,6 +242,8 @@ services:
     restart: unless-stopped
     networks:
       - airco-network
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: ${KEYCLOAK_DB_USERNAME:-keycloak}
@@ -233,7 +251,7 @@ services:
     volumes:
       - keycloak_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USERNAME:-keycloak}"]
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -245,9 +263,11 @@ services:
     restart: unless-stopped
     networks:
       - airco-network
+    ports:
+      - "8080:8080"
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin123}
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: change-me-keycloak-admin
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
       KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:-keycloak}
@@ -268,10 +288,10 @@ services:
       KC_HTTP_CORS_EXPOSED_HEADERS: "WWW-Authenticate,Content-Type"
       KC_HTTP_CORS_MAX_AGE: "3600"
       KC_SPI: "http://localhost:3000"
-      KC_HTTP_CORS_ORIGINS: ${KC_HTTP_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      KC_HTTP_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       KC_SANITY_CHECK: "false"
       KC_HTTP_CORS: "true"
-      KC_HTTP_CORS_ALLOWED_ORIGINS: ${KC_HTTP_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      KC_HTTP_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       keycloak-postgres:
         condition: service_healthy
@@ -288,6 +308,8 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -302,9 +324,12 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "5672:5672"
+      - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-admin}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-admin123}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -319,6 +344,9 @@ services:
     restart: always
     networks:
       - airco-network
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
@@ -330,6 +358,30 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: airco_nginx
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    networks:
+      - airco-network
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O - http://localhost/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 networks:
   airco-network:

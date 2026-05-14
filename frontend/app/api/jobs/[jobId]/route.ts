@@ -4,11 +4,12 @@ const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL |
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
+    const { jobId } = await params
     const authorization = request.headers.get('authorization')
-    const response = await fetch(`${BACKEND_URL}/api/jobs/${params.jobId}`, {
+    const response = await fetch(`${BACKEND_URL}/api/jobs/${jobId}`, {
       headers: authorization ? { Authorization: authorization } : undefined,
     })
 
@@ -26,7 +27,7 @@ export async function GET(
 
     const resultData = data?.result_data
     if (resultData && !resultData?.excel_url) {
-      resultData.excel_url = `/api/jobs/${encodeURIComponent(params.jobId)}/download`
+      resultData.excel_url = `/api/jobs/${encodeURIComponent(jobId)}/download`
     }
 
     return NextResponse.json(data)

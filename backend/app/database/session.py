@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 raw_database_url = os.getenv("DATABASE_URL", "").strip()
@@ -22,13 +22,44 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def _ensure_user_file_record_batch_columns() -> None:
+    inspector = inspect(engine)
+    if 'user_file_records' not in inspector.get_table_names():
+        return
+
+    columns = {column['name'] for column in inspector.get_columns('user_file_records')}
+
+    statements = []
+    if 'batch_id' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN batch_id VARCHAR(64)"
+        )
+    if 'statement_label' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN statement_label VARCHAR(255)"
+        )
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def initialize_database() -> None:
     if DATABASE_URL.startswith("postgresql"):
         # Coordinate schema creation across multiple workers so Postgres DDL does not race.
-        with engine.begin() as connection:
+        with engine.connect() as connection:
             connection.execute(text("SELECT pg_advisory_lock(hashtext('airco_schema_init'))"))
             try:
                 Base.metadata.create_all(bind=connection)
+                connection.execute(
+                    text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS batch_id VARCHAR(64)")
+                )
+                connection.execute(
+                    text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS statement_label VARCHAR(255)")
+                )
                 connection.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
@@ -41,11 +72,46 @@ def initialize_database() -> None:
                         "ON user_file_records (user_id, status)"
                     )
                 )
+                connection.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
+                        "ON user_file_records (user_id, batch_id, created_at)"
+                    )
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
             finally:
-                connection.execute(text("SELECT pg_advisory_unlock(hashtext('airco_schema_init'))"))
+                try:
+                    connection.execute(text("SELECT pg_advisory_unlock(hashtext('airco_schema_init'))"))
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
         return
 
     Base.metadata.create_all(bind=engine)
+    _ensure_user_file_record_batch_columns()
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
+                "ON user_file_records (user_id, created_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_status "
+                "ON user_file_records (user_id, status)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
+                "ON user_file_records (user_id, batch_id, created_at)"
+            )
+        )
+    
 
 
 def get_db():

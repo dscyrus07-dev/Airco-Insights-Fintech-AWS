@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..models.job import Job, JobType, JobStatus, JobUpdate
 from ..services.redis_job_store import redis_job_store
+from ..services.file_history_service import file_history_service
 from ..utils.correlation import get_correlation_id, set_correlation_id
 from ..utils.logging import get_logger
 
@@ -62,6 +63,12 @@ class TaskProcessor:
             # Update to running
             await self._job_store.update_job(job.id, JobUpdate(status=JobStatus.RUNNING))
             
+            # Update file history service
+            try:
+                file_history_service.mark_running(job.id)
+            except Exception as e:
+                logger.warning("Failed to update file history service for running status", job_id=job.id, error=str(e))
+            
             # Get processor
             processor = self._processors.get(job.type)
             if not processor:
@@ -77,6 +84,12 @@ class TaskProcessor:
                 result_data=result
             ))
             
+            # Update file history service
+            try:
+                file_history_service.mark_completed(job.id, result)
+            except Exception as e:
+                logger.warning("Failed to update file history service for completed status", job_id=job.id, error=str(e))
+            
             logger.info("Job completed", job_id=job.id, job_type=job.type)
             
         except Exception as e:
@@ -85,6 +98,12 @@ class TaskProcessor:
                 status=JobStatus.FAILED,
                 error_message=str(e)
             ))
+            
+            # Update file history service
+            try:
+                file_history_service.mark_failed(job.id, str(e))
+            except Exception as fe:
+                logger.warning("Failed to update file history service for failed status", job_id=job.id, error=str(fe))
         
         finally:
             # Clean up task reference

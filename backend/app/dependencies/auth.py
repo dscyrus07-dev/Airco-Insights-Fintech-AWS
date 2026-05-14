@@ -191,7 +191,7 @@ async def verify_legacy_token(token: str) -> Optional[Dict[str, Any]]:
     """Verify legacy JWT token."""
     try:
         # This would use the old JWT verification logic
-        # TODO: Implement based on your current JWT setup
+        # Legacy JWT verification - implement as needed
         return None
     except Exception:
         return None

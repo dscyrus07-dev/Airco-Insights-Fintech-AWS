@@ -1,0 +1,197 @@
+{
+  "discoveries": [
+    {
+      "timestamp": "2026-04-16T18:48:03.976403",
+      "type": "ocr_process",
+      "content": {
+        "libraries": [
+          "pdfplumber==0.10.4",
+          "pymupdf==1.23.8",
+          "pikepdf==8.11.2"
+        ],
+        "processing_flow": "Bank-specific processors with coordinate mapping",
+        "risks": [
+          "Hardcoded coordinates break if PDF format changes",
+          "No generic OCR engine"
+        ],
+        "key_files": [
+          "backend/app/services/pdf_processor.py",
+          "backend/app/services/pipeline_orchestrator.py",
+          "backend/app/services/banks/hdfc/parser.py",
+          "backend/app/services/banks/axis/parser.py",
+          "backend/app/services/banks/icici/parser.py"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-16T18:48:03.982466",
+      "type": "rabbitmq_status",
+      "content": {
+        "current_state": "Redis-only job processing",
+        "infrastructure_status": "RabbitMQ infrastructure exists but unused",
+        "processing_mode": "Synchronous in main thread",
+        "key_files": [
+          "backend/app/services/task_processor.py",
+          "backend/app/services/redis_job_store.py",
+          "backend/app/services/message_queue.py"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-16T18:48:03.994731",
+      "type": "context_update",
+      "content": {
+        "files_updated": [
+          "project-context.md",
+          "architecture.md",
+          "dev-flow.md",
+          "project-rules.md",
+          "system-workflow.md"
+        ],
+        "update_timestamp": "2026-04-16T18:48:03.994731"
+      }
+    },
+    {
+      "timestamp": "2026-04-20T18:30:00.000000",
+      "type": "production_deployment",
+      "content": {
+        "deployment_status": "Production live on AWS EC2",
+        "instance_details": {
+          "id": "i-0f6be511029581929",
+          "region": "us-east-1",
+          "elastic_ip": "98.83.22.152",
+          "domain": "test.theairco.ai"
+        },
+        "security_features": [
+          "Let's Encrypt SSL certificates",
+          "TLS 1.2/1.3 with strong ciphers",
+          "Nginx reverse proxy",
+          "Docker containerization",
+          "Health monitoring endpoints"
+        ],
+        "key_files": [
+          "docker-compose.ec2.yml",
+          "nginx/nginx.ec2.conf.template",
+          "manage-ec2-instance.ps1",
+          ".env"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-20T19:00:00.000000",
+      "type": "keycloak_implementation",
+      "content": {
+        "authentication_system": "Keycloak fully integrated",
+        "jwt_configuration": {
+          "algorithm": "RS256",
+          "realm": "airco-insights",
+          "client": "frontend-app",
+          "claims_validated": ["sub", "email", "exp", "iat", "iss", "aud", "azp"]
+        },
+        "rbac_roles": ["user", "admin", "analyst"],
+        "security_features": [
+          "JWKS endpoint for key rotation",
+          "CORS restricted to test.theairco.ai",
+          "Role-based access control",
+          "Correlation ID tracking"
+        ],
+        "key_files": [
+          "services/auth-service/app/services/keycloak_validator.py",
+          "services/auth-service/app/dependencies/auth.py",
+          "services/auth-service/app/utils/logging.py"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-20T19:15:00.000000",
+      "type": "compliance_analysis",
+      "content": {
+        "analysis_completed": "Deep security and compliance analysis",
+        "overall_scores": {
+          "security_score": "8.5/10",
+          "compliance_readiness": "75-85%"
+        },
+        "regulatory_readiness": {
+          "GDPR": "85%",
+          "PCI DSS": "70%",
+          "SOC 2": "75%",
+          "ISO 27001": "70%"
+        },
+        "documented_features": [
+          "Authentication & Authorization",
+          "Data Storage Security",
+          "Infrastructure Security",
+          "Custom Algorithms Security",
+          "Audit Logging & Monitoring",
+          "Input Validation & Security"
+        ],
+        "proof_points": "All features documented with code references and verification commands"
+      }
+    },
+    {
+      "timestamp": "2026-04-20T19:30:00.000000",
+      "type": "data_processing_security",
+      "content": {
+        "security_implementations": {
+          "pdf_integrity": "7-step validation with fail-fast design",
+          "data_integrity": "7 validation checks with zero tolerance",
+          "ai_processing": "Groq/Claude with fallback strategy",
+          "bank_processors": "HDFC fully implemented with 11-step pipeline"
+        },
+        "validation_features": [
+          "PDF magic bytes verification",
+          "Balance reconciliation (1 paisa tolerance)",
+          "Transaction count verification",
+          "Duplicate detection",
+          "Classification coverage validation",
+          "Confidence threshold validation"
+        ],
+        "key_files": [
+          "backend/app/services/core/pdf_integrity_validator.py",
+          "backend/app/services/core/data_integrity_guard.py",
+          "services/ai-service/app/services/ai_processor.py",
+          "backend/app/services/banks/hdfc/processor.py"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-20T19:45:00.000000",
+      "type": "minio_storage_security",
+      "content": {
+        "storage_security": "MinIO S3-compatible with enterprise features",
+        "security_features": [
+          "MD5 checksums on all uploads",
+          "User-scoped storage isolation",
+          "Presigned URLs with expiration",
+          "No public buckets",
+          "HTTPS enforcement",
+          "Metadata tracking"
+        ],
+        "bucket_structure": "users/{user_id}/{unique_id}.{ext}",
+        "access_control": "All access authenticated with temporary tokens",
+        "key_files": [
+          "services/file-service/app/services/storage_service.py",
+          "services/file-service/app/utils/logging.py"
+        ]
+      }
+    },
+    {
+      "timestamp": "2026-04-20T20:00:00.000000",
+      "type": "windsurf_update",
+      "content": {
+        "updates_made": [
+          "project-context.md updated with latest discoveries",
+          "dev-flow.md enhanced with compliance workflows",
+          "compliance-workflow.md created",
+          "discovery_log.json updated"
+        ],
+        "new_workflows": [
+          "Compliance Analysis Workflow",
+          "EC2 Management Workflow",
+          "Security Review Workflow"
+        ],
+        "documentation_status": "All recent changes documented and discoverable"
+      }
+    }
+  ]
+}

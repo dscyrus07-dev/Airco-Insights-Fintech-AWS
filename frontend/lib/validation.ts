@@ -7,10 +7,7 @@ export function validateUserDetails(details: UserDetails): string | null {
   if (!details.fullName.trim()) {
     return 'Please enter your full name.'
   }
-  if (!details.accountType) {
-    return 'Please select an account type.'
-  }
-  if (!details.bankName) {
+  if (!details.bankName && (!details.selectedBanks || details.selectedBanks.length === 0)) {
     return 'Please select a bank.'
   }
   return null

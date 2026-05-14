@@ -150,7 +150,6 @@ CLIENT_PAYLOAD=$(cat <<EOF
     "pkce.code.challenge.method": "S256"
   },
   "fullScopeAllowed": false,
-  "nodeTimeout": 0,
   "defaultClientScopes": [
     "web-origins",
     "role_list",

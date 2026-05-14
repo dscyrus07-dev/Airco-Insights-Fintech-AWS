@@ -100,7 +100,7 @@ export default function ProcessingStep({
         {messages[messageIndex]}
       </p>
       <p className="text-xs text-neutral-400 mt-3">
-        This may take a moment depending on statement size.
+        This may take a moment depending on the number and size of uploaded statements.
       </p>
       <div className="mt-4 px-3 py-1 bg-neutral-50 border border-neutral-200 rounded-full">
         <span className="text-[10px] text-neutral-500 font-medium">

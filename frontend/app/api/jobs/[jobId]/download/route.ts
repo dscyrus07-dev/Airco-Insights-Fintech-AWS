@@ -4,11 +4,12 @@ const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL |
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
+    const { jobId } = await params
     const authorization = request.headers.get('authorization')
-    const response = await fetch(`${BACKEND_URL}/api/jobs/${params.jobId}/download`, {
+    const response = await fetch(`${BACKEND_URL}/api/jobs/${jobId}/download`, {
       headers: authorization ? { Authorization: authorization } : undefined,
     })
 

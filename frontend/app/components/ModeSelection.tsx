@@ -52,7 +52,7 @@ export default function ModeSelection({ onSelect, isProcessing }: ModeSelectionP
         Choose Processing Mode
       </h2>
       <p className="text-sm text-neutral-500 mb-6">
-        Select how you want your transactions to be categorized.
+        Select how you want your uploaded statements to be categorized.
       </p>
 
       <div className="space-y-3">

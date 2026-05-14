@@ -50,6 +50,115 @@ Update Documentation (if needed)
 Run Tests
     |
     v
+Verify Production Readiness
+    |
+    v
+Document Changes
+```
+
+## Specialized Workflows
+
+### Compliance Analysis Workflow
+```
+Compliance Request
+    |
+    v
+Read Compliance Documents (.docx, analysis drafts)
+    |
+    v
+Deep Codebase Analysis
+    |
+    v
+Extract Security Features
+    |
+    v
+Document Proof Points
+    |
+    v
+Create Compliance Report
+```
+
+### EC2 Management Workflow
+```
+Infrastructure Request
+    |
+    v
+Use manage-ec2-instance.ps1
+    |
+    v
+Actions Available:
+    - start: Start EC2 + Docker
+    - stop: Stop Docker + EC2
+    - status: Show instance status
+    - restart: Restart Docker only
+    - fullstart: Ensure instance + Docker running
+    - rebuild: Rebuild Docker stack
+    |
+    v
+Verify Service Health
+```
+
+### Security Review Workflow
+```
+Security Assessment Request
+    |
+    v
+Analyze Authentication (Keycloak)
+    |
+    v
+Review Storage Security (MinIO)
+    |
+    v
+Check Infrastructure (AWS/SSL)
+    |
+    v
+Examine Data Processing (Algorithms)
+    |
+    v
+Document Findings with Proof
+    |
+    v
+Generate Compliance Report
+```
+
+## Key Files for Context
+
+### Production Management
+- `manage-ec2-instance.ps1` - EC2 lifecycle management
+- `.env` - Production configuration
+- `docker-compose.ec2.yml` - Production stack
+
+### Compliance & Security
+- Compliance analysis documents
+- Security implementation files
+- Audit logs and monitoring
+
+### Development
+- `docker-compose.yml` - Local development
+- `docker-compose.local.yml` - Local port exposure
+- `scripts/` - Utility scripts
+
+## Recent Updates (2026-04-20)
+
+### Production Deployment
+- Elastic IP allocated: 98.83.22.152
+- SSL certificates from Let's Encrypt
+- Permanent domain: test.theairco.ai
+- Health monitoring enabled
+
+### Security Implementation
+- Keycloak fully configured
+- JWT validation with RS256
+- Role-based access control
+- Correlation ID tracking
+
+### Compliance Documentation
+- Deep security analysis completed
+- All features documented with proof points
+- Overall security score: 8.5/10
+- Compliance readiness: 75-85%
+    |
+    v
 Check Service Health
     |
     v
@@ -328,3 +437,24 @@ Mark Task Complete
 3. **Security**: Maintain security standards
 4. **Maintainability**: Write maintainable code
 5. **Usability**: Deliver user-friendly solutions
+## Auto-Update Mechanism
+
+### Context File Management
+- **Auto-Update**: Every 2 chats automatically updates context files
+- **Discovery Log**: Tracks all technical discoveries during conversations
+- **File Updates**: Updates project-context.md, architecture.md, dev-flow.md
+- **Chat Counter**: Tracks conversation count for update triggers
+
+### Update Process
+```
+Chat #1: Discovery logged
+Chat #2: Context files auto-updated with latest insights
+Chat #3: New discoveries logged
+Chat #4: Context files updated again
+```
+
+### Discovery Types
+- **ocr_process**: PDF processing workflow discoveries
+- **rabbitmq_status**: Message queue implementation details
+- **bank_processors**: Bank-specific processing logic
+- **coordinate_mapping**: PDF layout coordinate systems

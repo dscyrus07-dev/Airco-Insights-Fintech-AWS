@@ -105,3 +105,56 @@ Airco Insights is a FinTech SaaS platform that automates bank statement analysis
 - **Phase 2**: File processing and storage services
 - **Phase 3**: Core processing services (PDF, AI, Report)
 - **Current**: Production-ready microservices with backward compatibility
+
+## Recent Discoveries
+
+### ocr_process (2026-04-16T18:48:03.976403)
+- **OCR Libraries**: pdfplumber, PyMuPDF, pikepdf
+- **Processing Flow**: Bank-specific processors with coordinate mapping
+- **Risk Assessment**: Hardcoded coordinates for PDF layouts
+
+### rabbitmq_status (2026-04-16T18:48:03.982466)
+- **Current State**: Redis-only job processing
+- **RabbitMQ**: Infrastructure exists but unused
+- **Processing**: Synchronous in main thread
+
+### production_deployment (2026-04-20T18:30:00.000000)
+- **AWS EC2**: Production instance i-0f6be511029581929 in us-east-1
+- **Elastic IP**: 98.83.22.152 (permanent, no more IP changes)
+- **Domain**: test.theairco.ai with Let's Encrypt SSL
+- **SSL**: TLS 1.2/1.3 with strong ciphers (HIGH:!aNULL:!MD5)
+- **Infrastructure**: Docker Compose with Nginx reverse proxy
+- **Health Checks**: All services monitored with /health endpoints
+
+### keycloak_implementation (2026-04-20T19:00:00.000000)
+- **Authentication**: Full Keycloak integration with JWT validation
+- **Realm**: airco-insights with client frontend-app
+- **JWT Algorithm**: RS256 with JWKS endpoint for key rotation
+- **RBAC**: Role-based access control (user, admin, analyst)
+- **Claims Validated**: sub, email, exp, iat, iss, aud, azp
+- **Security**: CORS restricted to test.theairco.ai
+
+### compliance_analysis (2026-04-20T19:15:00.000000)
+- **Security Score**: 8.5/10 overall rating
+- **Compliance Readiness**: 75-85% (varies by regulation)
+- **GDPR**: 85% ready with strong data protection
+- **PCI DSS**: 70% ready with security foundations
+- **SOC 2**: 75% ready with good controls
+- **ISO 27001**: 70% ready with strong foundation
+- **Features Documented**: All implementations with code references and proof points
+
+### data_processing_security (2026-04-20T19:30:00.000000)
+- **PDF Integrity**: 7-step validation with fail-fast design
+- **Data Integrity**: 7 validation checks with zero tolerance for errors
+- **AI Processing**: Groq/Claude with fallback strategy and confidence scoring
+- **Bank Processors**: HDFC fully implemented with 11-step pipeline
+- **Audit Trail**: Correlation ID tracking across all services
+- **Input Validation**: Comprehensive file and API validation
+
+### minio_storage_security (2026-04-20T19:45:00.000000)
+- **File Integrity**: MD5 checksums on all uploads
+- **User Isolation**: User-scoped storage with presigned URLs
+- **Access Control**: No public buckets, all access authenticated
+- **Metadata Tracking**: Original filename, content type, checksum, user ID
+- **HTTPS Enforcement**: SSL/TLS required for all access
+

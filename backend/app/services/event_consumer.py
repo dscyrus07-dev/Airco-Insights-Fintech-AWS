@@ -65,7 +65,10 @@ class EventConsumer:
                 raise ValueError("file_path is required in queue payload")
 
             await self._mark_job(job_id, JobStatus.RUNNING)
-            file_history_service.mark_running(job_id)
+            try:
+                file_history_service.mark_running(job_id)
+            except Exception as e:
+                logger.warning("Failed to update file history service for running status", job_id=job_id, error=str(e))
             result = process_statement(
                 file_path=file_path,
                 user_info=user_info,
@@ -92,13 +95,19 @@ class EventConsumer:
                 excel_url=f"/api/jobs/{job_id}/download",
             )
             await self._mark_job(job_id, JobStatus.COMPLETED, result_data=frontend_result)
-            file_history_service.mark_completed(job_id, frontend_result)
+            try:
+                file_history_service.mark_completed(job_id, frontend_result)
+            except Exception as e:
+                logger.warning("Failed to update file history service for completed status", job_id=job_id, error=str(e))
             logger.info("Queued statement processed", job_id=job_id, bank_name=user_info.get("bank_name"))
             return True
         except Exception as e:
             logger.error("Queued statement processing failed", job_id=job_id, error=str(e))
             await self._mark_job(job_id, JobStatus.FAILED, error_message=str(e))
-            file_history_service.mark_failed(job_id, str(e))
+            try:
+                file_history_service.mark_failed(job_id, str(e))
+            except Exception as fe:
+                logger.warning("Failed to update file history service for failed status", job_id=job_id, error=str(fe))
             return False
 
     async def _handle_pipeline_result(self, payload: Dict[str, Any]):

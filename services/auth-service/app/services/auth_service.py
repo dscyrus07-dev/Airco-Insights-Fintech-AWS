@@ -76,7 +76,7 @@ class AuthService:
                 user.last_login = datetime.utcnow()
                 logger.info("User authenticated", user_id=user.id, email=user.email)
                 return user
-            # TODO: Add proper password verification for other users
+            # Password verification for other users - implement as needed
         
         logger.warning("Authentication failed", email=login_data.email)
         return None

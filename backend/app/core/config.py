@@ -47,7 +47,7 @@ class Settings:
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
     
     # RabbitMQ (for message queuing in Phase 1)
-    RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "amqp://admin:admin123@localhost:5672/")
+    RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "amqp://change-me-rabbitmq-user:change-me-rabbitmq-pass@localhost:5672/")
 
 
 settings = Settings()

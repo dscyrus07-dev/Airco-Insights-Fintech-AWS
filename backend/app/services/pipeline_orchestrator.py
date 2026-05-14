@@ -11,9 +11,10 @@ NEW ARCHITECTURE:
 
 Supported Banks:
 - HDFC (complete)
-- ICICI (planned)
-- Axis (planned)
-- Kotak (planned)
+- ICICI (complete)
+- Axis (complete)
+- Kotak (complete)
+- SBI (complete)
 
 Design Principles:
 - Bank-specific intelligence
@@ -338,30 +339,3 @@ def process_statement(
     return response
 
 
-# ---------------------------------------------------------------------------
-# Legacy Compatibility Function (for unsupported banks)
-# ---------------------------------------------------------------------------
-
-def process_statement_legacy(
-    file_path: str,
-    user_info: dict,
-    mode: str = "free",
-    api_key: Optional[str] = None,
-    db_session=None,
-) -> dict:
-    """
-    Legacy processing function for unsupported banks.
-    Falls back to generic processing.
-    """
-    bank_name = user_info.get("bank_name", "")
-    bank_key = _normalize_bank_name(bank_name)
-    
-    # Fall back to legacy orchestrator for unsupported banks
-    logger.info("Falling back to legacy processor for bank: %s", bank_key)
-    
-    # Import legacy processor (assuming it exists)
-    # from app.services.legacy_orchestrator import process_statement as legacy_process
-    # return legacy_process(file_path, user_info, mode, api_key, db_session)
-    
-    # For now, return unsupported error
-    raise UnsupportedBankError(f"Bank '{bank_name}' is not supported yet")

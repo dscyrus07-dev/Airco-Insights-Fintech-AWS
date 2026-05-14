@@ -276,3 +276,16 @@
 - **Resource Health**: Monitor resource usage and availability
 - **Automated Recovery**: Automated recovery from common failures
 - **Manual Intervention**: Clear procedures for manual intervention
+## Auto-Update Rules
+
+### Context File Maintenance
+- **Update Frequency**: Every 2 conversations
+- **Discovery Logging**: All technical insights must be logged
+- **File Synchronization**: Keep context files aligned with codebase understanding
+- **Version Control**: Track changes to documentation
+
+### Quality Standards
+- **Accuracy**: All discoveries must be verified against actual code
+- **Completeness**: Include file paths, function names, and technical details
+- **Relevance**: Focus on actionable insights for development
+- **Timeliness**: Update context immediately after discoveries

@@ -15,6 +15,17 @@ export interface UserDetails {
   fullName: string
   accountType: AccountType | ''
   bankName: BankName | ''
+  selectedBanks: BankName[]
+}
+
+export interface BankStatementFileItem {
+  id: string
+  bankName: BankName
+  file: File
+  statementLabel: string
+  accountType: AccountType | ''
+  pdfPassword?: string
+  status?: 'ready' | 'queued' | 'processing' | 'completed' | 'failed'
 }
 
 export interface CostEstimate {
@@ -75,6 +86,8 @@ export interface UserUploadHistoryItem {
   bank_name?: string
   account_type?: string
   mode?: string
+  batch_id?: string | null
+  statement_label?: string | null
   status: string
   created_at?: string
   upload_object_key?: string
@@ -85,8 +98,32 @@ export interface UserReportHistoryItem {
   job_id: string
   name: string
   bank_name?: string
+  batch_id?: string | null
+  statement_label?: string | null
   created_at?: string
   report_object_key?: string
+}
+
+export interface UserBatchBankGroup {
+  bank_name: string
+  statement_count: number
+  processed_count: number
+  failed_count: number
+  uploads: UserUploadHistoryItem[]
+  reports: UserReportHistoryItem[]
+}
+
+export interface UserBatchHistoryItem {
+  batch_id: string
+  created_at?: string | null
+  updated_at?: string | null
+  bank_names: string[]
+  statement_count: number
+  processed_count: number
+  failed_count: number
+  uploads: UserUploadHistoryItem[]
+  reports: UserReportHistoryItem[]
+  bank_groups?: UserBatchBankGroup[]
 }
 
 export interface ProfileHistoryResponse {
@@ -103,10 +140,12 @@ export interface ProfileHistoryResponse {
     total_uploads: number
     processed_files: number
     generated_reports: number
+    total_batches?: number
     latest_account_type?: string | null
   }
   uploads: UserUploadHistoryItem[]
   reports: UserReportHistoryItem[]
+  batches?: UserBatchHistoryItem[]
 }
 
 export interface SheetPreview {

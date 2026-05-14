@@ -1,4 +1,4 @@
-import { ProcessingResult, ProcessingMode, UserDetails } from '@/types'
+import { AccountType, ProcessingResult, ProcessingMode, UserDetails } from '@/types'
 
 const API_URL = '/api'
 
@@ -40,13 +40,25 @@ export async function uploadStatement(
   mode: ProcessingMode = 'free',
   apiKey?: string,
   pdfPassword?: string,
+  batchId?: string,
+  statementLabel?: string,
+  bankName?: string,
+  accountType?: AccountType | '',
 ): Promise<ProcessingResult> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('full_name', userDetails.fullName)
-  formData.append('account_type', userDetails.accountType)
-  formData.append('bank_name', userDetails.bankName)
+  formData.append('account_type', accountType || userDetails.accountType)
+  formData.append('bank_name', bankName || userDetails.bankName)
   formData.append('mode', mode)
+
+  if (batchId) {
+    formData.append('batch_id', batchId)
+  }
+
+  if (statementLabel) {
+    formData.append('statement_label', statementLabel)
+  }
 
   if (mode === 'hybrid' && apiKey) {
     formData.append('api_key', apiKey)
