@@ -361,3 +361,18 @@ Implication:
 ---
 
 This document is intended to represent the current real behavior of the codebase, not just intended target architecture.
+
+
+To Access MINIMO UI:
+
+
+If the last command shows port 9001 listening, then on your local Windows PowerShell run:
+
+& "C:\Windows\System32\OpenSSH\ssh.exe" -i "C:\Users\admin\Downloads\fintech.pem" -L 9001:localhost:9001 ec2-user@ec2-13-127-21-44.ap-south-1.compute.amazonaws.com
+Then open:
+
+http://127.0.0.1:9001
+
+If you want, after you run the EC2 command, paste just the output of:
+
+sudo ss -ltnp | grep 9001
