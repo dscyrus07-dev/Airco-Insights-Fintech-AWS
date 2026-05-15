@@ -49,12 +49,16 @@ class SBIValidationResult:
 class SBITransactionValidator:
     """Validates and normalizes SBI Bank transactions."""
 
+    # SBI date formats (matches HDFC robustness)
     DATE_FORMATS = [
-        "%Y-%m-%d",    # Already normalized by parser (primary)
-        "%d %b %Y",    # DD Mon YYYY fallback
-        "%d %B %Y",    # DD Month YYYY
-        "%d-%m-%Y",
-        "%d/%m/%Y",
+        "%d/%m/%y",      # DD/MM/YY
+        "%d/%m/%Y",      # DD/MM/YYYY
+        "%d-%m-%y",      # DD-MM-YY
+        "%d-%m-%Y",      # DD-MM/YYYY
+        "%d %b %Y",      # DD Mon YYYY
+        "%d-%b-%Y",      # DD-Mon-YYYY
+        "%d/%b/%Y",      # DD/Mon/YYYY
+        "%Y-%m-%d",      # YYYY-MM-DD
     ]
 
     def __init__(self, strict_mode: bool = True):
@@ -92,6 +96,8 @@ class SBITransactionValidator:
             credit  = self._clean_amount(txn_dict.get("credit"))
             balance = self._clean_amount(txn_dict.get("balance"))
 
+            # Balance can be negative (overdraft accounts)
+            # Only validate that balance is a valid number
             txn_dict["debit"]   = debit
             txn_dict["credit"]  = credit
             txn_dict["balance"] = balance if balance is not None else 0.0

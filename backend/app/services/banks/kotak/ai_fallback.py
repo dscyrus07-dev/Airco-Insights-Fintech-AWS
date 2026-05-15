@@ -3,12 +3,17 @@ Airco Insights — Kotak Bank AI Fallback (stub)
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
-from ...intelligence import GroqIntelligenceLayer, LearningStore
+if TYPE_CHECKING:
+    from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
+from app.services.banks._shared.category_registry import get_allowed_categories, normalize_category
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_CATEGORIES = get_allowed_categories()
 
 
 @dataclass
@@ -22,10 +27,13 @@ class AIClassificationResult:
 
 class KotakAIFallback:
     def __init__(self, api_key: Optional[str] = None):
+        from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
         self.api_key = api_key
         self.logger  = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.learning_store = LearningStore()
-        self.intelligence = GroqIntelligenceLayer(
+        intelligence_cls = ClaudeIntelligenceLayer if api_key and api_key.startswith("sk-ant-") else GroqIntelligenceLayer
+        self.intelligence = intelligence_cls(
             api_key=api_key,
             bank_name="Kotak",
             learning_store=self.learning_store,
@@ -50,12 +58,7 @@ class KotakAIFallback:
             transactions=transactions,
             bank_name=bank_name,
             account_type=account_type,
-            allowed_categories=[
-                "ATM Withdrawal", "Food", "Shopping", "Transport", "Bill Payment",
-                "Entertainment", "Education", "Loan Payments", "Credit Card Payment",
-                "Transfer", "Salary Credits", "Interest", "Refund", "Bank Transfer In",
-                "Others Debit", "Others Credit",
-            ],
+            allowed_categories=set(ALLOWED_CATEGORIES),
         )
         return result, AIClassificationResult(
             classified_count=stats.classified_count,

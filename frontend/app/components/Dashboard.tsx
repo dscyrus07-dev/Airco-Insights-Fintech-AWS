@@ -17,16 +17,7 @@ import {
   UserCircle2,
 } from 'lucide-react'
 import { AccountType, BankStatementFileItem, UserDetails, ProcessingResult, ProcessingMode, Step, JobSubmitted, ProfileHistoryResponse, UserUploadHistoryItem, UserReportHistoryItem } from '@/types'
-
-const BANKS = [
-  { name: 'HDFC Bank', available: true },
-  { name: 'ICICI Bank', available: true },
-  { name: 'Axis Bank', available: true },
-  { name: 'Kotak Bank', available: true },
-  { name: 'SBI', available: true },
-  { name: 'PNB', available: false },
-  { name: 'Bank of Baroda', available: false },
-]
+import { SUPPORTED_BANK_OPTIONS } from '@/lib/banks'
 
 type BatchResultItem = {
   id: string
@@ -631,7 +622,7 @@ export default function Dashboard() {
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                {BANKS.map(({ name, available }) => (
+                {SUPPORTED_BANK_OPTIONS.map(({ name, available }) => (
                   <span
                     key={name}
                     className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${

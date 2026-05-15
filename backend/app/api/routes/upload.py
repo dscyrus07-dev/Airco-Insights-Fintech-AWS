@@ -57,11 +57,46 @@ def _get_bank_engine(bank_name: str):
         from ...services.banks.sbi.report_generator import generate_report
         return SBIParser(), generate_report, "sbi"
 
+    if key in ("canara", "canarabank"):
+        from ...services.banks.canara.parser import CanaraParser
+        from ...services.banks.canara.report_generator import generate_report
+        return CanaraParser(), generate_report, "canara"
+
+    if key in ("idfc", "idfcbank", "idfcfirst", "idfcfirstbank"):
+        from ...services.banks.idfc.parser import IDFCParser
+        from ...services.banks.idfc.report_generator import generate_report
+        return IDFCParser(), generate_report, "idfc"
+
+    if key in ("karnataka", "karnatakabank"):
+        from ...services.banks.karnataka.parser import KarnatakaParser
+        from ...services.banks.karnataka.report_generator import generate_report
+        return KarnatakaParser(), generate_report, "karnataka"
+
+    if key in ("paytm", "paytmbank", "paytmpaymentsbank"):
+        from ...services.banks.paytm.parser import PaytmParser
+        from ...services.banks.paytm.report_generator import generate_report
+        return PaytmParser(), generate_report, "paytm"
+
+    if key in ("union", "unionbank", "unionbankofindia", "ubi"):
+        from ...services.banks.union.parser import UnionParser
+        from ...services.banks.union.report_generator import generate_report
+        return UnionParser(), generate_report, "union"
+
+    if key in ("bankofbaroda", "bankofbaroda", "bob", "baroda"):
+        from ...services.banks.bank_of_baroda.parser import BankOfBarodaParser
+        from ...services.banks.bank_of_baroda.report_generator import generate_report
+        return BankOfBarodaParser(), generate_report, "bank_of_baroda"
+
+    if key in ("unknown", "unknownbank"):
+        from ...services.banks.unknown.parser import UnknownParser
+        from ...services.banks.unknown.report_generator import generate_report
+        return UnknownParser(), generate_report, "unknown"
+
     raise HTTPException(
         status_code=400,
         detail=(
             f"Unsupported bank: '{bank_name}'. "
-            "Supported banks: HDFC, Axis, ICICI, Kotak, SBI"
+            "Supported banks: HDFC, Axis, ICICI, Kotak, SBI, Canara, IDFC, Karnataka, Paytm, Union, Bank of Baroda, Unknown"
         )
     )
 

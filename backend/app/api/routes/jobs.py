@@ -7,7 +7,8 @@ from botocore.client import Config as BotoConfig
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse, Response
 
-from ...models.job import Job, JobStatus, JobUpdate
+from ...models.job import Job, JobStatus, JobUpdate, JobType
+from ...services.file_history_service import file_history_service
 from ...services.redis_job_store import redis_job_store
 from ...utils.correlation import get_correlation_id
 from ...utils.logging import get_logger
@@ -16,6 +17,54 @@ from ...dependencies.auth import get_current_user, get_current_user_optional, ge
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _job_from_file_record(record) -> Job:
+    status_value = (record.status or "pending").upper()
+    try:
+        status = JobStatus(status_value.lower())
+    except Exception:
+        status = JobStatus.PENDING
+
+    result_data = {}
+    if record.report_object_key:
+        result_data["excel_object_key"] = record.report_object_key
+    if record.report_filename:
+        result_data["report_filename"] = record.report_filename
+    if record.total_transactions is not None:
+        result_data["total_transactions"] = record.total_transactions
+
+    return Job(
+        id=record.job_id,
+        type=JobType.PDF_PROCESSING,
+        status=status,
+        correlation_id=record.job_id,
+        user_id=record.user_id,
+        bank_name=record.bank_name,
+        input_data={
+            "original_filename": record.original_filename,
+            "batch_id": record.batch_id,
+            "statement_label": record.statement_label,
+            "mode": record.mode,
+            "upload_object_key": record.upload_object_key,
+        },
+        result_data=result_data,
+        error_message=record.error_message,
+        created_at=record.created_at,
+        completed_at=record.completed_at,
+    )
+
+
+async def _get_job_or_history(job_id: str) -> Job:
+    job = await redis_job_store.get_job(job_id)
+    if job:
+        return job
+
+    record = file_history_service.get_by_job_id(job_id)
+    if record:
+        return _job_from_file_record(record)
+
+    raise HTTPException(status_code=404, detail="Job not found")
 
 
 def _ensure_job_access(job: Job, current_user: Optional[dict]) -> None:
@@ -48,9 +97,7 @@ async def get_job(
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """Get job status and details."""
-    job = await redis_job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_job_or_history(job_id)
     
     _ensure_job_access(job, current_user)
     
@@ -63,9 +110,7 @@ async def download_job_result(
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     """Download the Excel generated for a completed async job."""
-    job = await redis_job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_job_or_history(job_id)
 
     _ensure_job_access(job, current_user)
 
@@ -108,6 +153,9 @@ async def list_jobs(
     
     # Get all jobs and filter by user ownership
     all_jobs = await redis_job_store.list_jobs()
+    if not all_jobs:
+        all_records = file_history_service.list_all()
+        all_jobs = [_job_from_file_record(record) for record in all_records]
     
     for job in all_jobs:
         # Admin can see all jobs, users can only see their own
@@ -125,6 +173,8 @@ async def list_all_jobs(
 ):
     """List all jobs (admin only)."""
     jobs = await redis_job_store.list_jobs()
+    if not jobs:
+        jobs = [_job_from_file_record(record) for record in file_history_service.list_all()]
     
     if status is not None:
         jobs = [job for job in jobs if job.status == status]
@@ -137,9 +187,7 @@ async def delete_job(
     current_user: dict = Depends(get_current_user)
 ):
     """Delete a job."""
-    job = await redis_job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_job_or_history(job_id)
     
     # Check ownership
     if not check_user_ownership(job.user_id or "", current_user):
@@ -155,7 +203,10 @@ async def delete_job(
             detail="Can only delete completed or failed jobs"
         )
     
-    await redis_job_store.delete_job(job_id)
+    if await redis_job_store.get_job(job_id):
+        await redis_job_store.delete_job(job_id)
+    else:
+        file_history_service.delete_file(job.user_id or "", job_id)
     return {"message": "Job deleted successfully"}
 
 @router.post("/{job_id}/cancel")
@@ -164,9 +215,7 @@ async def cancel_job(
     current_user: dict = Depends(get_current_user)
 ):
     """Cancel a running job."""
-    job = await redis_job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_job_or_history(job_id)
     
     # Check ownership
     if not check_user_ownership(job.user_id or "", current_user):
@@ -182,6 +231,9 @@ async def cancel_job(
             detail="Can only cancel running jobs"
         )
     
-    await redis_job_store.update_job_status(job_id, JobStatus.CANCELLED)
+    if await redis_job_store.get_job(job_id):
+        await redis_job_store.update_job_status(job_id, JobStatus.CANCELLED)
+    else:
+        file_history_service.mark_cancelled(job_id)
     logger.info("Job cancelled", job_id=job_id, correlation_id=get_correlation_id())
     return {"message": "Job cancelled successfully"}

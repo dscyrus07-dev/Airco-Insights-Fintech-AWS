@@ -31,6 +31,8 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
+from app.services.banks._shared.category_registry import normalize_category
+
 from .report_generator import (
     _build_category_outcome_frame,
     _build_source_analysis_frame,
@@ -76,6 +78,9 @@ class FormulaExcelEngine:
     
     FILL_LIGHT_BLUE = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
     FILL_LIGHT_ORANGE = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
+    FILL_QUALITY_HIGH = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid')
+    FILL_QUALITY_MEDIUM = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
+    FILL_QUALITY_LOW = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
     
     # Number formats
     FMT_CURRENCY = '₹#,##0.00'
@@ -229,7 +234,14 @@ class FormulaExcelEngine:
                 ws.cell(row=row_idx, column=5, value=balance).number_format = self.FMT_CURRENCY
             
             # Column F - Category
-            ws.cell(row=row_idx, column=6, value=txn.get('category', ''))
+            ws.cell(
+                row=row_idx,
+                column=6,
+                value=normalize_category(
+                    txn.get('category', ''),
+                    is_debit=bool(debit and debit > 0),
+                ),
+            )
             
             # Column G - Confidence
             ws.cell(row=row_idx, column=7, value=txn.get('confidence', ''))
@@ -586,7 +598,7 @@ class FormulaExcelEngine:
             ('Name', metadata.get('name', '')),
             ('Account No', metadata.get('account_no', '')),
             ('Statement From', f"=MIN({RAW}!A:A)"),
-            ('Statement To', f"=MAX({RAW}!A:A)")
+            ('Statement To', f"=MAX({RAW}!A:A)"),
         ]
         
         for row_idx, (label, value) in enumerate(header_data, 1):
@@ -603,7 +615,7 @@ class FormulaExcelEngine:
             cell_value.border = self.BORDER_THIN
             
             # Date format for rows 3-4
-            if row_idx >= 3:
+            if label in {'Statement From', 'Statement To'}:
                 cell_value.number_format = self.FMT_DATE
         
         # ═══════════════════════════════════════════════════
@@ -726,6 +738,30 @@ class FormulaExcelEngine:
             cell.number_format = self.FMT_CURRENCY
             cell.alignment = self.ALIGN_CENTER
             cell.border = self.BORDER_THIN
+
+        quality_rows = [
+            ('Data Quality', metadata.get('data_quality', 'high')),
+            ('Reconciliation', metadata.get('reconciliation_status', 'passed')),
+            ('Warnings', metadata.get('data_quality_warnings') or 'None'),
+        ]
+        for row_offset, (label, value) in enumerate(quality_rows, 17):
+            label_cell = ws.cell(row=row_offset, column=1, value=label)
+            label_cell.font = self.FONT_BOLD
+            label_cell.alignment = self.ALIGN_LEFT
+            label_cell.border = self.BORDER_THIN
+
+            value_cell = ws.cell(row=row_offset, column=2, value=value)
+            value_cell.font = self.FONT_DEFAULT
+            value_cell.alignment = self.ALIGN_LEFT
+            value_cell.border = self.BORDER_THIN
+            if label == 'Data Quality':
+                quality = str(value or '').lower()
+                if quality == 'low':
+                    value_cell.fill = self.FILL_QUALITY_LOW
+                elif quality == 'medium':
+                    value_cell.fill = self.FILL_QUALITY_MEDIUM
+                else:
+                    value_cell.fill = self.FILL_QUALITY_HIGH
         
         # Column widths
         ws.column_dimensions['A'].width = 28
@@ -756,10 +792,9 @@ class FormulaExcelEngine:
         
         # Credit categories
         credit_categories = [
-            'UPI',
-            'Loan',
-            'Salary Credits',
-            'Bank Transfer',
+            'Transfer',
+            'Loan Disbursed',
+            'Salary',
             'Cash Deposit',
             'Others Credit',
             'Total Credit Amount'
@@ -811,12 +846,12 @@ class FormulaExcelEngine:
         
         # Debit categories
         debit_categories = [
-            'Loan Payments',
+            'Loan Payment',
             'ATM Withdrawal',
             'Shopping',
             'Bill Payment',
-            'Withdrawal',
-            'Investments',
+            'Transfer',
+            'Investment',
             'Others Debit',
             'Total Debit Amount'
         ]

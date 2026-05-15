@@ -12,6 +12,7 @@ import redis.asyncio as redis
 from ..models.job import Job, JobStatus, JobUpdate
 from ..core.config import settings
 from ..utils.logging import get_logger
+from .job_store import job_store as fallback_job_store
 
 logger = get_logger(__name__)
 
@@ -24,6 +25,20 @@ class RedisJobStore:
     
     def _client(self) -> redis.Redis:
         return redis.from_url(self.redis_url, decode_responses=False)
+
+    async def _redis_available(self) -> bool:
+        client = self._client()
+        try:
+            await client.ping()
+            return True
+        except Exception as exc:
+            logger.warning("Redis unavailable; using in-memory job store fallback", error=str(exc))
+            return False
+        finally:
+            try:
+                await client.aclose()
+            except Exception:
+                pass
     
     async def disconnect(self):
         """Disconnect from Redis."""
@@ -32,6 +47,9 @@ class RedisJobStore:
     
     async def create_job(self, job: Job) -> Job:
         """Create a new job in Redis."""
+        if not await self._redis_available():
+            return await fallback_job_store.create_job(job)
+
         client = self._client()
         try:
             await client.ping()
@@ -60,6 +78,9 @@ class RedisJobStore:
     
     async def get_job(self, job_id: str) -> Optional[Job]:
         """Get a job by ID from Redis."""
+        if not await self._redis_available():
+            return await fallback_job_store.get_job(job_id)
+
         client = self._client()
         try:
             await client.ping()
@@ -78,6 +99,9 @@ class RedisJobStore:
     
     async def update_job(self, job_id: str, update: JobUpdate) -> Optional[Job]:
         """Update a job in Redis."""
+        if not await self._redis_available():
+            return await fallback_job_store.update_job(job_id, update)
+
         client = self._client()
         try:
             await client.ping()
@@ -121,6 +145,9 @@ class RedisJobStore:
     
     async def list_jobs(self, user_id: Optional[str] = None, status: Optional[JobStatus] = None) -> List[Job]:
         """List jobs with optional filters."""
+        if not await self._redis_available():
+            return await fallback_job_store.list_jobs(user_id=user_id, status=status)
+
         client = self._client()
         try:
             await client.ping()

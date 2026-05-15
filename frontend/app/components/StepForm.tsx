@@ -4,16 +4,7 @@ import { useMemo, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { UserDetails, BankName } from '@/types'
 import { validateUserDetails } from '@/lib/validation'
-
-const BANKS: { name: BankName; available: boolean }[] = [
-  { name: 'HDFC Bank', available: true },
-  { name: 'ICICI Bank', available: true },
-  { name: 'Axis Bank', available: true },
-  { name: 'Kotak Bank', available: true },
-  { name: 'SBI', available: true },
-  { name: 'HSBC Bank', available: false },
-  { name: 'Other', available: false },
-]
+import { SUPPORTED_BANK_OPTIONS } from '@/lib/banks'
 
 interface StepFormProps {
   onSubmit: (details: UserDetails) => void
@@ -32,7 +23,7 @@ export default function StepForm({ onSubmit, initialDetails }: StepFormProps) {
   const [bankToAdd, setBankToAdd] = useState<BankName | ''>('')
   const [error, setError] = useState<string | null>(null)
 
-  const availableBanks = useMemo(() => BANKS.filter(({ available }) => available), [])
+  const availableBanks = useMemo(() => SUPPORTED_BANK_OPTIONS.filter(({ available }) => available), [])
 
   const syncPrimaryBank = (selectedBanks: BankName[]) => {
     const primaryBank = selectedBanks[0] ?? ''

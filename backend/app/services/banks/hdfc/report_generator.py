@@ -28,6 +28,7 @@ from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 from .hdfc_classifier import HDFCClassifier
 from ...intelligence import LearningStore
+from app.services.banks._shared.category_registry import normalize_category
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +274,17 @@ def _build_source_analysis_frame(df: pd.DataFrame) -> pd.DataFrame:
         for desc, mode in zip(frame["Description"], frame["TransactionMode"])
     ]
     frame["IsCredit"] = frame["Credit"].fillna(0) > 0
+    frame["Category"] = [
+        normalize_category(
+            cat,
+            is_debit=bool(debit) and not bool(credit),
+        )
+        for cat, debit, credit in zip(
+            frame["Category"].fillna(""),
+            frame["Debit"].fillna(0),
+            frame["Credit"].fillna(0),
+        )
+    ]
     frame["TxnAmount"] = frame["Credit"].where(frame["Credit"].fillna(0) > 0, frame["Debit"].fillna(0))
 
     recurring_keys = set()
@@ -286,7 +298,10 @@ def _build_source_analysis_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     frame["IsRecurring"] = frame["Source"].str.lower().fillna("unknown").isin(recurring_keys)
     frame["IdentifiedCategory"] = [
-        _map_identified_category(source, mode, desc, cat, is_credit)
+        normalize_category(
+            _map_identified_category(source, mode, desc, cat, is_credit),
+            is_debit=not is_credit,
+        )
         for source, mode, desc, cat, is_credit in zip(
             frame["Source"],
             frame["TransactionMode"],
@@ -310,6 +325,10 @@ def _build_source_analysis_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 def _build_category_outcome_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
     frame = source_frame.copy()
+    frame["IdentifiedCategory"] = [
+        normalize_category(cat, is_debit=False)
+        for cat in frame["IdentifiedCategory"].fillna("").astype(str)
+    ]
     aggregated = (
         frame.groupby(["IdentifiedCategory", "Source", "Month"], dropna=False)
         .agg(
@@ -330,7 +349,10 @@ def _build_category_outcome_tables(source_frame: pd.DataFrame) -> Dict[str, Any]
     if "IdentifiedCategory" not in frame.columns:
         frame["IdentifiedCategory"] = "Others"
 
-    frame["Category"] = frame["IdentifiedCategory"].fillna("").astype(str).str.strip()
+    frame["Category"] = [
+        normalize_category(cat, is_debit=False)
+        for cat in frame["IdentifiedCategory"].fillna("").astype(str)
+    ]
     frame.loc[frame["Category"] == "", "Category"] = "Others"
     frame["Source"] = frame["Source"].fillna("").astype(str).str.strip()
     frame.loc[frame["Source"] == "", "Source"] = "Unknown"
@@ -1238,21 +1260,21 @@ def generate_report(
 
     # Credit categories to show (mapped from classifier)
     credit_cat_display = [
-        ("UPI", ["UPI Transfer"]),
-        ("Loan", ["Loan Disbursal"]),
+        ("UPI", ["Transfer"]),
+        ("Loan", ["Loan Disbursed"]),
         ("Salary Credits", ["Salary"]),
-        ("Bank Transfer", ["Bank Transfer", "NEFT/RTGS/IMPS"]),
+        ("Bank Transfer", ["Transfer"]),
         ("Cash Deposit", ["Cash Deposit"]),
         ("Cheque Deposit", []),  # special: use IsCheque
         ("Others", []),  # special: remainder
     ]
     debit_cat_display = [
-        ("Loan Payments", ["Loan Payment / EMI"]),
+        ("Loan Payments", ["Loan Payment"]),
         ("ATM Withdrawal", ["ATM Withdrawal"]),
         ("Shopping", ["Shopping"]),
         ("Bill Payment", ["Bill Payment", "Bank Charges"]),
-        ("Withdrawal", ["Transfer Out", "NEFT/RTGS/IMPS"]),
-        ("Investments", ["Investment", "Fixed Deposit"]),
+        ("Withdrawal", ["Transfer"]),
+        ("Investments", ["Investment"]),
         ("Others", []),  # special: remainder
     ]
 

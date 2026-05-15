@@ -41,6 +41,7 @@ from .recurring_engine import HDFCRecurringEngine
 from .aggregation_engine import HDFCAggregationEngine
 from .excel_generator import HDFCExcelGenerator
 from .formula_excel_engine import FormulaExcelEngine
+from app.services.banks._shared.data_quality import compute_data_quality
 
 from app.services.core.pdf_integrity_validator import PDFIntegrityValidator, PDFIntegrityError
 from app.services.core.data_integrity_guard import DataIntegrityGuard, IntegrityError
@@ -80,6 +81,9 @@ class HDFCProcessingResult:
     aggregation: Any
     metrics: HDFCProcessingMetrics
     integrity_result: Any
+    data_quality: str = "high"
+    reconciliation_status: str = "passed"
+    data_quality_warnings: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     
@@ -102,6 +106,9 @@ class HDFCProcessingResult:
                 "reconciliation_passed": self.metrics.reconciliation_passed,
                 "integrity_passed": self.metrics.integrity_passed,
             },
+            "data_quality": self.data_quality,
+            "reconciliation_status": self.reconciliation_status,
+            "data_quality_warnings": self.data_quality_warnings,
             "performance": self.metrics.step_timings,
             "error": {
                 "message": self.error_message,
@@ -487,6 +494,18 @@ class HDFCProcessor:
                 'account_no': user_info.get('account_number', ''),
             }
 
+            data_quality, recon_status, dq_warnings = compute_data_quality(
+                recon_passed=metrics.reconciliation_passed,
+                corrections=corrections,
+                total=len(all_transactions),
+                mismatches=len(getattr(recon_result, 'mismatches', [])) if recon_result else 0,
+            )
+            metadata.update({
+                'data_quality': data_quality.value,
+                'reconciliation_status': recon_status,
+                'data_quality_warnings': "; ".join(dq_warnings) if dq_warnings else "None",
+            })
+
             try:
                 self.formula_excel_engine.generate(
                     formula_transactions,
@@ -513,7 +532,7 @@ class HDFCProcessor:
             # =================================================================
             metrics.transaction_count = len(all_transactions)
             metrics.total_time_ms = round((time.monotonic() - start_time) * 1000, 1)
-            
+
             self.logger.info(
                 "HDFC processing complete: %d transactions, %.1fms, reconciled=%s, integrity=%s",
                 metrics.transaction_count, metrics.total_time_ms,
@@ -527,6 +546,9 @@ class HDFCProcessor:
                 aggregation=aggregation,
                 metrics=metrics,
                 integrity_result=integrity_result,
+                data_quality=data_quality.value,
+                reconciliation_status=recon_status,
+                data_quality_warnings=dq_warnings,
             )
             
         except HDFCProcessorError:

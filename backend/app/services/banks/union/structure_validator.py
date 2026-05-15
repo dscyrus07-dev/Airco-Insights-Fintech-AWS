@@ -1,0 +1,1 @@
+from .processor import UnionStructureValidator, GenericStructureError as UnionStructureError

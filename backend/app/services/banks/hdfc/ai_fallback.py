@@ -16,12 +16,20 @@ Categories must match HDFC rule engine categories.
 
 import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
-from ...intelligence import GroqIntelligenceLayer, LearningStore
+if TYPE_CHECKING:
+    from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
+from app.services.banks._shared.category_registry import (
+    get_allowed_categories,
+    normalize_category,
+)
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_CATEGORIES = get_allowed_categories()
 
 
 @dataclass
@@ -39,16 +47,6 @@ class HDFCAIFallback:
     AI fallback classifier for HDFC transactions.
     """
     
-    # Valid categories (must match rule engine)
-    DEBIT_CATEGORIES = [
-        "ATM", "Food", "Shopping", "Transport", "Bills", "Entertainment",
-        "Health", "Education", "EMI", "Investment", "Transfer", "Others Debit"
-    ]
-    
-    CREDIT_CATEGORIES = [
-        "Salary", "Interest", "Refund", "Transfer In", "Others Credit"
-    ]
-    
     # Cost estimation (Claude Sonnet)
     COST_PER_1K_INPUT = 0.003
     COST_PER_1K_OUTPUT = 0.015
@@ -62,14 +60,17 @@ class HDFCAIFallback:
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize AI fallback.
-        
+
         Args:
             api_key: Anthropic API key
         """
+        from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
         self.api_key = api_key
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.learning_store = LearningStore()
-        self.intelligence = GroqIntelligenceLayer(
+        intelligence_cls = ClaudeIntelligenceLayer if api_key and api_key.startswith("sk-ant-") else GroqIntelligenceLayer
+        self.intelligence = intelligence_cls(
             api_key=api_key,
             bank_name="HDFC",
             learning_store=self.learning_store,
@@ -117,7 +118,7 @@ class HDFCAIFallback:
             transactions=transactions,
             bank_name=bank_name,
             account_type=account_type,
-            allowed_categories=self.DEBIT_CATEGORIES + self.CREDIT_CATEGORIES,
+            allowed_categories=set(ALLOWED_CATEGORIES),
         )
         return classified, AIClassificationResult(
             classified_count=stats.classified_count,
@@ -152,8 +153,8 @@ class HDFCAIFallback:
                 f"{'DEBIT' if is_debit else 'CREDIT'}: ₹{amount:,.2f}"
             )
         
-        debit_cats = ", ".join(self.DEBIT_CATEGORIES)
-        credit_cats = ", ".join(self.CREDIT_CATEGORIES)
+        debit_cats = ", ".join(ALLOWED_CATEGORIES)
+        credit_cats = ", ".join(ALLOWED_CATEGORIES)
         
         prompt = f"""Classify these {bank_name} bank transactions for a {account_type} account.
 
@@ -204,7 +205,7 @@ JSON response:"""
                 
                 # Validate category
                 is_debit = txn.get("debit") is not None
-                valid_cats = self.DEBIT_CATEGORIES if is_debit else self.CREDIT_CATEGORIES
+                valid_cats = ALLOWED_CATEGORIES
                 
                 if category not in valid_cats:
                     category = "Others Debit" if is_debit else "Others Credit"

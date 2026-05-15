@@ -21,6 +21,7 @@ from .recurring_engine import SBIRecurringEngine
 from .aggregation_engine import SBIAggregationEngine
 from .excel_generator import SBIExcelGenerator
 from .formula_excel_engine import FormulaExcelEngine
+from app.services.banks._shared.data_quality import compute_data_quality
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,10 @@ class SBIProcessingMetrics:
     transaction_count:     int = 0
     classified_count:      int = 0
     unclassified_count:    int = 0
+    ai_classified_count:   int = 0
     recurring_count:       int = 0
     reconciliation_passed: bool = False
+    corrections_made:      int = 0
 
 
 @dataclass
@@ -51,6 +54,9 @@ class SBIProcessingResult:
     transactions:  List[Dict[str, Any]]
     aggregation:   Any
     metrics:       SBIProcessingMetrics
+    data_quality: str = "high"
+    reconciliation_status: str = "passed"
+    data_quality_warnings: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
     error_code:    Optional[str] = None
 
@@ -60,15 +66,19 @@ class SBIProcessingResult:
             "excel_path": self.excel_path,
             "stats": {
                 "total_transactions": self.metrics.transaction_count,
-                "classified":         self.metrics.classified_count,
+                "rule_engine_classified": self.metrics.classified_count,
+                "ai_classified": self.metrics.ai_classified_count,
                 "others":             self.metrics.unclassified_count,
                 "recurring":          self.metrics.recurring_count,
                 "coverage_percent": round(
-                    self.metrics.classified_count /
+                    (self.metrics.classified_count + self.metrics.ai_classified_count) /
                     max(self.metrics.transaction_count, 1) * 100, 1
                 ),
             },
             "validation": {"reconciliation_passed": self.metrics.reconciliation_passed},
+            "data_quality": self.data_quality,
+            "reconciliation_status": self.reconciliation_status,
+            "data_quality_warnings": self.data_quality_warnings,
             "performance": self.metrics.step_timings,
             "error": {"message": self.error_message, "code": self.error_code}
             if self.error_message else None,
@@ -160,9 +170,15 @@ class SBIProcessor:
                 metrics
             )
 
-            # Stage 4: Reconciliation
+            # Stage 4: Reconciliation with auto-correction
+            # Try auto-correction first
+            transactions, corrections = self.reconciliation.auto_correct_debit_credit(transactions)
+            metrics.corrections_made = corrections
+            if corrections > 0:
+                self.logger.info("Auto-corrected %d debit/credit assignments", corrections)
+            
             try:
-                self._time_step(
+                recon_result = self._time_step(
                     "reconciliation",
                     lambda: self.reconciliation.reconcile(
                         transactions,
@@ -177,6 +193,14 @@ class SBIProcessor:
             except SBIReconciliationError as e:
                 self.logger.warning("Reconciliation warning: %s", str(e))
                 metrics.reconciliation_passed = False
+                recon_result = None
+
+            data_quality, recon_status, dq_warnings = compute_data_quality(
+                recon_passed=metrics.reconciliation_passed,
+                corrections=metrics.corrections_made,
+                total=len(transactions),
+                mismatches=len(getattr(recon_result, "mismatches", [])) if recon_result else 0,
+            )
 
             # Stage 5: Rule-based classification
             classified_txns, _ = self._time_step(
@@ -250,6 +274,9 @@ class SBIProcessor:
                 transactions=classified_txns,
                 aggregation=aggregation,
                 metrics=metrics,
+                data_quality=data_quality.value,
+                reconciliation_status=recon_status,
+                data_quality_warnings=dq_warnings,
             )
 
         except (SBIStructureError, SBIParseError, SBIValidationError) as e:

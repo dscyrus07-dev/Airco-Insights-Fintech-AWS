@@ -1,17 +1,15 @@
-"""
-Airco Insights — Axis Bank AI Fallback
-=======================================
-AI classification stub for unresolved Axis Bank transactions.
-AI is LAST RESORT — rule engine handles all deterministic cases.
-"""
-
 import logging
-from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from ...intelligence import GroqIntelligenceLayer, LearningStore
+if TYPE_CHECKING:
+    from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
+from app.services.banks._shared.category_registry import get_allowed_categories
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_CATEGORIES = get_allowed_categories()
 
 
 @dataclass
@@ -24,23 +22,14 @@ class AIClassificationResult:
 
 
 class AxisAIFallback:
-    """AI fallback classifier for Axis Bank transactions (stub — disabled by default)."""
-
-    DEBIT_CATEGORIES = [
-        "ATM Withdrawal", "Food", "Shopping", "Transport", "Bill Payment",
-        "Entertainment", "Education", "Loan Payments", "Credit Card Payment",
-        "Transfer", "Others Debit",
-    ]
-
-    CREDIT_CATEGORIES = [
-        "Salary Credits", "Interest", "Refund", "Bank Transfer In", "Others Credit",
-    ]
-
     def __init__(self, api_key: Optional[str] = None):
+        from ...intelligence import ClaudeIntelligenceLayer, GroqIntelligenceLayer, LearningStore
+
         self.api_key = api_key
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.learning_store = LearningStore()
-        self.intelligence = GroqIntelligenceLayer(
+        intelligence_cls = ClaudeIntelligenceLayer if api_key and api_key.startswith("sk-ant-") else GroqIntelligenceLayer
+        self.intelligence = intelligence_cls(
             api_key=api_key,
             bank_name="Axis",
             learning_store=self.learning_store,
@@ -65,7 +54,7 @@ class AxisAIFallback:
             transactions=transactions,
             bank_name=bank_name,
             account_type=account_type,
-            allowed_categories=self.DEBIT_CATEGORIES + self.CREDIT_CATEGORIES,
+            allowed_categories=set(ALLOWED_CATEGORIES),
         )
         return result, AIClassificationResult(
             classified_count=stats.classified_count,

@@ -1,0 +1,1 @@
+from .processor import IDFCStructureValidator, GenericStructureError as IDFCStructureError

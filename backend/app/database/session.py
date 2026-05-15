@@ -1,6 +1,11 @@
 import os
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker, declarative_base
+
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 raw_database_url = os.getenv("DATABASE_URL", "").strip()
 if not raw_database_url or "pooler.supabase.com" in raw_database_url:
@@ -50,44 +55,50 @@ def _ensure_user_file_record_batch_columns() -> None:
 def initialize_database() -> None:
     if DATABASE_URL.startswith("postgresql"):
         # Coordinate schema creation across multiple workers so Postgres DDL does not race.
-        with engine.connect() as connection:
-            connection.execute(text("SELECT pg_advisory_lock(hashtext('airco_schema_init'))"))
-            try:
-                Base.metadata.create_all(bind=connection)
-                connection.execute(
-                    text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS batch_id VARCHAR(64)")
-                )
-                connection.execute(
-                    text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS statement_label VARCHAR(255)")
-                )
-                connection.execute(
-                    text(
-                        "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
-                        "ON user_file_records (user_id, created_at)"
-                    )
-                )
-                connection.execute(
-                    text(
-                        "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_status "
-                        "ON user_file_records (user_id, status)"
-                    )
-                )
-                connection.execute(
-                    text(
-                        "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
-                        "ON user_file_records (user_id, batch_id, created_at)"
-                    )
-                )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
-            finally:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT pg_advisory_lock(hashtext('airco_schema_init'))"))
                 try:
-                    connection.execute(text("SELECT pg_advisory_unlock(hashtext('airco_schema_init'))"))
+                    Base.metadata.create_all(bind=connection)
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS batch_id VARCHAR(64)")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS statement_label VARCHAR(255)")
+                    )
+                    connection.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
+                            "ON user_file_records (user_id, created_at)"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_status "
+                            "ON user_file_records (user_id, status)"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
+                            "ON user_file_records (user_id, batch_id, created_at)"
+                        )
+                    )
                     connection.commit()
                 except Exception:
                     connection.rollback()
+                    raise
+                finally:
+                    try:
+                        connection.execute(text("SELECT pg_advisory_unlock(hashtext('airco_schema_init'))"))
+                        connection.commit()
+                    except Exception:
+                        connection.rollback()
+        except OperationalError as exc:
+            logger.warning("Database unavailable; skipping schema initialization", error=str(exc))
+            return
+        except Exception:
+            raise
         return
 
     Base.metadata.create_all(bind=engine)

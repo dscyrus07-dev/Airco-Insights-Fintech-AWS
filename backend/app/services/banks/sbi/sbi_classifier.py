@@ -7,6 +7,8 @@ Rule-based classifier for SBI transactions using keyword matching.
 import logging
 from typing import Tuple
 
+from app.services.banks._shared.category_registry import normalize_category
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,15 +56,19 @@ class SBIClassifier:
             (category, confidence) where confidence is 0-100
         """
         description = str(row.get("Description", "")).upper()
+        try:
+            is_debit = float(row.get("Debit", 0) or row.get("debit", 0) or 0) > 0
+        except (TypeError, ValueError):
+            is_debit = False
         
         # Try to match keywords
         for category, keywords in self.categories.items():
             for keyword in keywords:
                 if keyword in description:
-                    return (category, 100)
+                    return (normalize_category(category, is_debit=is_debit), 100)
         
         # Default to "Others" if no match
-        return ("Others", 100)
+        return (normalize_category("Others", is_debit=is_debit), 100)
 
     def get_category_stats(self) -> dict:
         """Return classifier statistics."""

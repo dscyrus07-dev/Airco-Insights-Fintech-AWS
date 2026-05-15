@@ -325,11 +325,21 @@ class AxisRuleEngine:
                         matched_keyword=pattern.pattern,
                     )
 
-        # Layer 3: UPI merchant detection (debits only)
+        # Layer 3: General merchant mapping (non-UPI)
+        merchant_result = self._classify_merchant(description, is_debit)
+        if merchant_result:
+            return merchant_result
+
+        # Layer 4: UPI merchant detection (debits only)
         if is_debit:
             upi_result = self._classify_upi(description)
             if upi_result:
                 return upi_result
+
+        # Layer 5: Amount-based heuristics
+        amount_result = self._classify_amount(txn, is_debit)
+        if amount_result:
+            return amount_result
 
         return ClassificationResult(
             category=default_category,
@@ -351,6 +361,74 @@ class AxisRuleEngine:
                     matched_rule="upi_merchant",
                     matched_keyword=merchant,
                 )
+        return None
+
+    def _classify_merchant(self, description: str, is_debit: bool) -> Optional[ClassificationResult]:
+        """Layer 3: General merchant mapping (non-UPI)."""
+        # Extend merchant mapping for non-UPI transactions
+        merchant_map = {
+            "amazon": "Shopping" if is_debit else "Refund",
+            "flipkart": "Shopping" if is_debit else "Refund",
+            "myntra": "Shopping" if is_debit else "Refund",
+            "ajio": "Shopping" if is_debit else "Refund",
+            "nykaa": "Shopping" if is_debit else "Refund",
+            "swiggy": "Food",
+            "zomato": "Food",
+            "dominos": "Food",
+            "mcdonalds": "Food",
+            "kfc": "Food",
+            "uber": "Transport",
+            "ola": "Transport",
+            "rapido": "Transport",
+            "netflix": "Entertainment",
+            "hotstar": "Entertainment",
+            "spotify": "Entertainment",
+            "paytm": "Others Debit" if is_debit else "Transfer In",
+            "phonepe": "Others Debit" if is_debit else "Transfer In",
+            "gpay": "Others Debit" if is_debit else "Transfer In",
+        }
+        
+        desc_lower = description.lower()
+        for merchant, category in merchant_map.items():
+            if merchant in desc_lower:
+                return ClassificationResult(
+                    category=category,
+                    confidence=self.CONF_MERCHANT,
+                    source="rule_engine",
+                    matched_rule="merchant_mapping",
+                    matched_keyword=merchant,
+                )
+        return None
+
+    def _classify_amount(self, txn: Dict[str, Any], is_debit: bool) -> Optional[ClassificationResult]:
+        """Layer 5: Amount-based heuristics."""
+        amount = txn.get("debit") if is_debit else txn.get("credit")
+        if not amount or amount <= 0:
+            return None
+        
+        # EMI pattern: round amounts ending in 00, 000, typical EMI values
+        if is_debit and amount % 100 == 0 and 500 <= amount <= 100000:
+            # Check if description suggests recurring
+            desc = (txn.get("description") or "").lower()
+            if any(kw in desc for kw in ["emi", "loan", "installment"]):
+                return ClassificationResult(
+                    category="Loan Payments",
+                    confidence=self.CONF_AMOUNT,
+                    source="rule_engine",
+                    matched_rule="amount_emi",
+                )
+        
+        # Salary pattern: large round credits
+        if not is_debit and amount % 1000 == 0 and amount >= 10000:
+            desc = (txn.get("description") or "").lower()
+            if any(kw in desc for kw in ["salary", "payroll", "wages"]):
+                return ClassificationResult(
+                    category="Salary Credits",
+                    confidence=self.CONF_AMOUNT,
+                    source="rule_engine",
+                    matched_rule="amount_salary",
+                )
+        
         return None
 
     def get_statistics(self) -> Dict[str, Any]:

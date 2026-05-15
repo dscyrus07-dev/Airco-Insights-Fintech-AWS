@@ -316,8 +316,10 @@ async def upload_bank_statement(
             )
             logger.info("Excel stored in MinIO for user: %s", user_id)
 
-        # 8. Build frontend response
-        return _build_frontend_response(result, mode)
+        if excel_path:
+            result["excel_url"] = f"/download/{os.path.basename(excel_path)}"
+
+        return result
     
     except PipelineValidationError as e:
         logger.warning("Validation error: %s", str(e))

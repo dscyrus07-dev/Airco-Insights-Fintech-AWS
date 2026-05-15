@@ -50,12 +50,16 @@ class AxisValidationResult:
 class AxisTransactionValidator:
     """Validates and normalizes Axis Bank transactions."""
 
-    # Axis date formats
+    # Axis date formats (matches HDFC robustness)
     DATE_FORMATS = [
-        "%d-%m-%Y",   # DD-MM-YYYY (primary)
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%Y-%m-%d",
+        "%d/%m/%y",      # DD/MM/YY
+        "%d/%m/%Y",      # DD/MM/YYYY
+        "%d-%m-%y",      # DD-MM-YY
+        "%d-%m-%Y",      # DD-MM/YYYY
+        "%d %b %Y",      # DD Mon YYYY
+        "%d-%b-%Y",      # DD-Mon-YYYY
+        "%d/%b/%Y",      # DD/Mon/YYYY
+        "%Y-%m-%d",      # YYYY-MM-DD
     ]
 
     def __init__(self, strict_mode: bool = True):
@@ -108,6 +112,8 @@ class AxisTransactionValidator:
             credit = self._clean_amount(txn_dict.get("credit"))
             balance = self._clean_amount(txn_dict.get("balance"))
 
+            # Balance can be negative (overdraft accounts)
+            # Only validate that balance is a valid number
             txn_dict["debit"] = debit
             txn_dict["credit"] = credit
             txn_dict["balance"] = balance if balance is not None else 0.0

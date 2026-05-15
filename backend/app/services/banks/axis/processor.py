@@ -10,8 +10,10 @@ Processing Pipeline:
 3. Transaction Validation
 4. Balance Reconciliation
 5. Rule Engine Classification
-6. Recurring Detection
-7. Report Generation (5-sheet Excel)
+6. AI Fallback (if enabled)
+7. Recurring Detection
+8. Aggregation
+9. Report Generation (5-sheet Excel)
 """
 
 import logging
@@ -31,6 +33,7 @@ from .recurring_engine import AxisRecurringEngine
 from .aggregation_engine import AxisAggregationEngine
 from .excel_generator import AxisExcelGenerator
 from .formula_excel_engine import FormulaExcelEngine
+from app.services.banks._shared.data_quality import compute_data_quality
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +53,10 @@ class AxisProcessingMetrics:
     transaction_count: int = 0
     classified_count: int = 0
     unclassified_count: int = 0
+    ai_classified_count: int = 0
     recurring_count: int = 0
     reconciliation_passed: bool = False
+    corrections_made: int = 0
 
 
 @dataclass
@@ -61,6 +66,9 @@ class AxisProcessingResult:
     transactions: List[Dict[str, Any]]
     aggregation: Any
     metrics: AxisProcessingMetrics
+    data_quality: str = "high"
+    reconciliation_status: str = "passed"
+    data_quality_warnings: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
     error_code: Optional[str] = None
 
@@ -81,6 +89,9 @@ class AxisProcessingResult:
             "validation": {
                 "reconciliation_passed": self.metrics.reconciliation_passed,
             },
+            "data_quality": self.data_quality,
+            "reconciliation_status": self.reconciliation_status,
+            "data_quality_warnings": self.data_quality_warnings,
             "performance": self.metrics.step_timings,
             "error": {
                 "message": self.error_message,
@@ -136,59 +147,201 @@ class AxisProcessor:
         pipeline_start: float,
     ) -> AxisProcessingResult:
         """
-        Free Mode: Coordinate-based parser + strict rule engine + 5-sheet report.
+        Free Mode: Full HDFC-style pipeline with coordinate parser.
         """
         from .report_generator import generate_report
 
-        self.logger.info("AXIS FREE MODE: coordinate parser + classifier + 5-sheet report")
+        self.logger.info("AXIS FREE MODE: full pipeline with coordinate parser")
+
+        if output_dir is None:
+            output_dir = os.path.dirname(file_path) or "."
 
         try:
-            # Step 1: Parse PDF
+            # =================================================================
+            # STEP 1: Structure Validation
+            # =================================================================
             step_start = time.monotonic()
-            parse_result = self.parser.parse(file_path)
-            metrics.step_timings["parsing"] = round((time.monotonic() - step_start) * 1000, 1)
+            self.logger.info("Step 1: Axis Structure Validation")
+            
+            text_content = self.parser._extract_text(file_path)
+            structure_result = self.structure_validator.validate(text_content)
+            statement_metadata = structure_result.metadata
+            
+            metrics.step_timings["structure_validation"] = round((time.monotonic() - step_start) * 1000, 1)
+            self.logger.info("Structure validation passed: account=%s", statement_metadata.account_number)
 
+            # =================================================================
+            # STEP 2: PDF Parsing
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 2: Transaction Parsing")
+            
+            parse_result = self.parser.parse(file_path, text_content=text_content)
             transactions = [txn.to_dict() for txn in parse_result.transactions]
             metrics.transaction_count = len(transactions)
-
+            metrics.step_timings["parsing"] = round((time.monotonic() - step_start) * 1000, 1)
+            
             self.logger.info("Parsed %d Axis transactions", len(transactions))
 
-            if output_dir is None:
-                output_dir = os.path.dirname(file_path) or "."
-
-            # Step 2: Generate 5-sheet report
+            # =================================================================
+            # STEP 3: Transaction Validation
+            # =================================================================
             step_start = time.monotonic()
+            self.logger.info("Step 3: Transaction Validation")
+            
+            validation_result = self.transaction_validator.validate(transactions)
+            transactions = validation_result.validated_transactions
+            
+            metrics.step_timings["transaction_validation"] = round((time.monotonic() - step_start) * 1000, 1)
+            self.logger.info("Transaction validation: %d valid", len(transactions))
+
+            # =================================================================
+            # STEP 4: Balance Reconciliation with Auto-Correction
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 4: Balance Reconciliation")
+            
+            # Try auto-correction first
+            transactions, corrections = self.reconciliation.auto_correct_debit_credit(transactions)
+            metrics.corrections_made = corrections
+            if corrections > 0:
+                self.logger.info("Auto-corrected %d debit/credit assignments", corrections)
+            
+            try:
+                recon_result = self.reconciliation.reconcile(
+                    transactions,
+                    expected_opening=statement_metadata.opening_balance,
+                    expected_closing=statement_metadata.closing_balance,
+                )
+            except AxisReconciliationError as e:
+                if self.strict_mode:
+                    raise AxisProcessorError(
+                        str(e), stage="reconciliation", error_code=e.error_code, details=e.details
+                    )
+                self.logger.warning("Reconciliation failed (non-strict mode): %s", str(e))
+                recon_result = None
+            
+            metrics.reconciliation_passed = recon_result.is_reconciled if recon_result else False
+            metrics.step_timings["reconciliation"] = round((time.monotonic() - step_start) * 1000, 1)
+
+            # =================================================================
+            # STEP 5: Rule Engine Classification
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 5: Rule Engine Classification")
+            
+            classified, unclassified = self.rule_engine.classify(transactions)
+            
+            metrics.classified_count = len(classified)
+            metrics.step_timings["rule_engine"] = round((time.monotonic() - step_start) * 1000, 1)
+            self.logger.info("Rule engine: %d classified, %d unclassified", len(classified), len(unclassified))
+
+            # =================================================================
+            # STEP 6: AI Fallback (if enabled)
+            # =================================================================
+            ai_classified_count = 0
+            
+            if self.enable_ai and unclassified:
+                step_start = time.monotonic()
+                self.logger.info("Step 6: AI Classification (%d transactions)", len(unclassified))
+                
+                ai_results, ai_stats = self.ai_fallback.classify(
+                    unclassified,
+                    bank_name="Axis",
+                    account_type=user_info.get("account_type", "Salaried"),
+                )
+                
+                ai_classified_count = sum(1 for t in ai_results if not t.get("category", "").startswith("Others"))
+                all_transactions = classified + ai_results
+                metrics.ai_classified_count = ai_classified_count
+                metrics.step_timings["ai_classification"] = round((time.monotonic() - step_start) * 1000, 1)
+            else:
+                # Tag unclassified as Others
+                for txn in unclassified:
+                    is_debit = txn.get("debit") is not None
+                    txn["category"] = "Others Debit" if is_debit else "Others Credit"
+                    txn["confidence"] = 0.5
+                    txn["source"] = "default_others"
+                
+                all_transactions = classified + unclassified
+            
+            metrics.unclassified_count = sum(1 for t in all_transactions if t.get("category", "").startswith("Others"))
+
+            # =================================================================
+            # STEP 7: Recurring Detection
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 7: Recurring Detection")
+            
+            all_transactions = self.recurring_engine.detect(all_transactions)
+            
+            metrics.recurring_count = sum(1 for t in all_transactions if t.get("is_recurring"))
+            metrics.step_timings["recurring_detection"] = round((time.monotonic() - step_start) * 1000, 1)
+            self.logger.info("Detected %d recurring transactions", metrics.recurring_count)
+
+            # =================================================================
+            # STEP 8: Aggregation
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 8: Aggregation")
+            
+            aggregation = self.aggregation_engine.aggregate(
+                all_transactions,
+                opening_balance=statement_metadata.opening_balance or 0,
+                closing_balance=statement_metadata.closing_balance or 0,
+            )
+            
+            metrics.step_timings["aggregation"] = round((time.monotonic() - step_start) * 1000, 1)
+
+            # =================================================================
+            # STEP 9: Compute Data Quality
+            # =================================================================
+            data_quality, recon_status, dq_warnings = compute_data_quality(
+                recon_passed=metrics.reconciliation_passed,
+                corrections=metrics.corrections_made,
+                total=len(all_transactions),
+                mismatches=len(recon_result.mismatches) if recon_result else 0,
+            )
+
+            # =================================================================
+            # STEP 10: Generate Report
+            # =================================================================
+            step_start = time.monotonic()
+            self.logger.info("Step 10: Report Generation")
+            
             excel_filename = f"axis_report_{uuid.uuid4().hex[:12]}.xlsx"
-            excel_path     = os.path.join(output_dir, excel_filename)
+            excel_path = os.path.join(output_dir, excel_filename)
 
             report_stats = generate_report(
-                transactions=transactions,
+                transactions=all_transactions,
                 output_path=excel_path,
                 user_info=user_info,
             )
 
-            metrics.step_timings["report_generation"] = round(
-                (time.monotonic() - step_start) * 1000, 1
-            )
-            metrics.classified_count = report_stats["total_transactions"]
-            metrics.recurring_count  = report_stats["recurring_count"]
-            metrics.total_time_ms    = round((time.monotonic() - pipeline_start) * 1000, 1)
+            metrics.step_timings["report_generation"] = round((time.monotonic() - step_start) * 1000, 1)
+            metrics.total_time_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
 
             self.logger.info(
-                "AXIS FREE MODE complete: %d transactions, %d recurring, %.1fms",
-                report_stats["total_transactions"],
-                report_stats["recurring_count"],
+                "AXIS FREE MODE complete: %d transactions, %d recurring, %.1fms, reconciled=%s",
+                len(all_transactions),
+                metrics.recurring_count,
                 metrics.total_time_ms,
+                metrics.reconciliation_passed,
             )
 
             return AxisProcessingResult(
                 status="success",
                 excel_path=excel_path,
-                transactions=transactions,
-                aggregation=report_stats,
+                transactions=all_transactions,
+                aggregation=aggregation,
                 metrics=metrics,
+                data_quality=data_quality.value,
+                reconciliation_status=recon_status,
+                data_quality_warnings=dq_warnings,
             )
 
+        except AxisProcessorError:
+            raise
         except Exception as e:
             self.logger.error("Axis processing failed: %s", str(e), exc_info=True)
             raise AxisProcessorError(

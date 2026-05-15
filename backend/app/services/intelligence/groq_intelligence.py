@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from app.services.banks._shared.category_registry import normalize_category
 
 from .learning_store import LearningStore
 
@@ -25,6 +28,10 @@ class GroqClassificationStats:
 
 class GroqIntelligenceLayer:
     """Selective Groq layer that only handles unresolved or ambiguous transactions."""
+
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [1, 2, 4]
+    CONFIDENCE_FLOOR = 0.65
 
     def __init__(
         self,
@@ -205,22 +212,47 @@ class GroqIntelligenceLayer:
 
         client = Groq(api_key=self.api_key)
         prompt = self._build_prompt([txn for _, txn, _ in pending], bank_name, account_type, allowed, recent)
+        messages = [
+            {"role": "system", "content": "Return strict JSON only. No markdown, no explanations."},
+            {"role": "user", "content": prompt},
+        ]
 
-        try:
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "Return strict JSON only. No markdown, no explanations."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0,
-                max_tokens=1200,
-            )
-            response_text = response.choices[0].message.content or ""
-            results = self._parse_response(response_text)
-        except Exception as exc:
-            self.logger.error("Groq classification failed: %s", exc)
-            results = []
+        results: List[Dict[str, Any]] = []
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=2048,
+                )
+                response_text = response.choices[0].message.content or ""
+                results = self._parse_response(response_text)
+                break
+            except Exception as exc:
+                error_str = str(exc)
+                is_retryable = (
+                    "429" in error_str
+                    or "timeout" in error_str.lower()
+                    or "connection" in error_str.lower()
+                    or "rate_limit" in error_str.lower()
+                )
+                if not is_retryable or attempt == self.MAX_RETRIES - 1:
+                    self.logger.error(
+                        "Groq API failed after %d attempts: %s",
+                        attempt + 1,
+                        exc,
+                    )
+                    results = []
+                    break
+                self.logger.warning(
+                    "Groq retry %d/%d in %ds: %s",
+                    attempt + 1,
+                    self.MAX_RETRIES,
+                    self.RETRY_DELAYS[attempt],
+                    exc,
+                )
+                time.sleep(self.RETRY_DELAYS[attempt])
 
         result_map: Dict[int, Dict[str, Any]] = {}
         for item in results:
@@ -236,11 +268,17 @@ class GroqIntelligenceLayer:
             ai_result = result_map.get(rel_idx, {})
             is_debit = self._is_debit(txn_copy)
             category = str(ai_result.get("category") or "").strip()
+            category = normalize_category(category, is_debit=is_debit)
             confidence = ai_result.get("confidence", 0.5)
             try:
                 confidence = float(confidence)
             except (TypeError, ValueError):
                 confidence = 0.5
+
+            if confidence < self.CONFIDENCE_FLOOR:
+                category = "Others Debit" if is_debit else "Others Credit"
+                confidence = 0.5
+
             reason = str(ai_result.get("reason") or "")
             entity = str(ai_result.get("entity") or ai_result.get("normalized_entity") or "")
             recurring_type = str(ai_result.get("recurring_type") or "")

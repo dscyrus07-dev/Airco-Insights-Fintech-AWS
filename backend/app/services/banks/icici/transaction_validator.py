@@ -50,13 +50,18 @@ class ICICIValidationResult:
 class ICICITransactionValidator:
     """Validates and normalizes ICICI Bank transactions."""
 
+    # ICICI date formats (matches HDFC robustness)
     DATE_FORMATS = [
-        "%d-%m-%Y",   # DD-MM-YYYY (primary ICICI format)
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%Y-%m-%d",
-        "%B %d, %Y",  # February 21, 2025
-        "%B %d %Y",
+        "%d/%m/%y",      # DD/MM/YY
+        "%d/%m/%Y",      # DD/MM/YYYY
+        "%d-%m-%y",      # DD-MM-YY
+        "%d-%m-%Y",      # DD-MM-YYYY
+        "%d %b %Y",      # DD Mon YYYY
+        "%d-%b-%Y",      # DD-Mon-YYYY
+        "%d/%b/%Y",      # DD/Mon/YYYY
+        "%Y-%m-%d",      # YYYY-MM-DD
+        "%B %d, %Y",     # February 21, 2025
+        "%B %d %Y",      # February 21 2025
     ]
 
     def __init__(self, strict_mode: bool = True):
@@ -94,6 +99,8 @@ class ICICITransactionValidator:
             credit  = self._clean_amount(txn_dict.get("credit"))
             balance = self._clean_amount(txn_dict.get("balance"))
 
+            # Balance can be negative (overdraft accounts)
+            # Only validate that balance is a valid number
             txn_dict["debit"]   = debit
             txn_dict["credit"]  = credit
             txn_dict["balance"] = balance if balance is not None else 0.0

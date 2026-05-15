@@ -19,10 +19,24 @@ from .hdfc import HDFCProcessor
 from .axis import AxisProcessor
 from .icici import ICICIProcessor
 from .kotak import KotakProcessor
+from .canara import CanaraProcessor
+from .idfc import IDFCProcessor
+from .karnataka import KarnatakaProcessor
+from .paytm import PaytmProcessor
+from .union import UnionProcessor
+from .bank_of_baroda import BankOfBarodaProcessor
+from .unknown import UnknownProcessor
 
 __all__ = [
     "HDFCProcessor",
     "AxisProcessor",
     "ICICIProcessor",
     "KotakProcessor",
+    "CanaraProcessor",
+    "IDFCProcessor",
+    "KarnatakaProcessor",
+    "PaytmProcessor",
+    "UnionProcessor",
+    "BankOfBarodaProcessor",
+    "UnknownProcessor",
 ]

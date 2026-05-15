@@ -77,9 +77,57 @@ SUPPORTED_BANKS = {
     "axis bank": "Axis Bank",
     "kotak": "Kotak Bank",
     "kotak bank": "Kotak Bank",
-    "hsbc": "HSBC",
     "sbi": "SBI",
     "state bank": "SBI",
+    "canara": "Canara Bank",
+    "canara bank": "Canara Bank",
+    "idfc": "IDFC Bank",
+    "idfc bank": "IDFC Bank",
+    "idfc first": "IDFC Bank",
+    "idfc first bank": "IDFC Bank",
+    "karnataka": "Karnataka Bank",
+    "karnataka bank": "Karnataka Bank",
+    "paytm": "Paytm Bank",
+    "paytm bank": "Paytm Bank",
+    "union": "Union Bank of India",
+    "union bank": "Union Bank of India",
+    "union bank of india": "Union Bank of India",
+    "bank of baroda": "Bank of Baroda",
+    "bankofbaroda": "Bank of Baroda",
+    "bob": "Bank of Baroda",
+    "unknown": "Unknown",
+    "unknown bank": "Unknown",
+}
+
+SUPPORTED_BANK_PROCESSORS = {
+    "hdfc": "hdfc",
+    "hdfc bank": "hdfc",
+    "icici": "icici",
+    "icici bank": "icici",
+    "axis": "axis",
+    "axis bank": "axis",
+    "kotak": "kotak",
+    "kotak bank": "kotak",
+    "sbi": "sbi",
+    "state bank": "sbi",
+    "canara": "canara",
+    "canara bank": "canara",
+    "idfc": "idfc",
+    "idfc bank": "idfc",
+    "idfc first": "idfc",
+    "idfc first bank": "idfc",
+    "karnataka": "karnataka",
+    "karnataka bank": "karnataka",
+    "paytm": "paytm",
+    "paytm bank": "paytm",
+    "union": "union",
+    "union bank": "union",
+    "union bank of india": "union",
+    "bank of baroda": "bank_of_baroda",
+    "bankofbaroda": "bank_of_baroda",
+    "bob": "bank_of_baroda",
+    "unknown": "unknown",
+    "unknown bank": "unknown",
 }
 
 
@@ -174,18 +222,21 @@ def _validate_input(
 
 def _normalize_bank_name(bank_name: str) -> str:
     """Normalize bank name to standard key."""
-    bank_lower = bank_name.lower().strip()
-    
-    # Direct mapping
-    if bank_lower in SUPPORTED_BANKS:
-        return bank_lower.split()[0]  # Return first word (hdfc, icici, etc.)
-    
-    # Check if bank name contains known bank
-    for key in SUPPORTED_BANKS:
-        if key in bank_lower:
-            return key.split()[0]
-    
-    return bank_lower.split()[0] if bank_lower else ""
+    bank_lower = " ".join(bank_name.lower().replace("_", " ").replace("-", " ").split())
+    bank_compact = bank_lower.replace(" ", "")
+
+    if bank_lower in SUPPORTED_BANK_PROCESSORS:
+        return SUPPORTED_BANK_PROCESSORS[bank_lower]
+
+    if bank_compact in SUPPORTED_BANK_PROCESSORS:
+        return SUPPORTED_BANK_PROCESSORS[bank_compact]
+
+    for alias, processor_key in SUPPORTED_BANK_PROCESSORS.items():
+        alias_compact = alias.replace(" ", "")
+        if alias in bank_lower or alias_compact in bank_compact:
+            return processor_key
+
+    return bank_compact or bank_lower
 
 
 def _get_bank_processor(bank_key: str):
@@ -210,6 +261,34 @@ def _get_bank_processor(bank_key: str):
     if bank_key == "sbi":
         from app.services.banks.sbi import SBIProcessor
         return SBIProcessor
+
+    if bank_key == "canara":
+        from app.services.banks.canara import CanaraProcessor
+        return CanaraProcessor
+
+    if bank_key == "idfc":
+        from app.services.banks.idfc import IDFCProcessor
+        return IDFCProcessor
+
+    if bank_key == "karnataka":
+        from app.services.banks.karnataka import KarnatakaProcessor
+        return KarnatakaProcessor
+
+    if bank_key == "paytm":
+        from app.services.banks.paytm import PaytmProcessor
+        return PaytmProcessor
+
+    if bank_key == "union":
+        from app.services.banks.union import UnionProcessor
+        return UnionProcessor
+
+    if bank_key == "bank_of_baroda":
+        from app.services.banks.bank_of_baroda import BankOfBarodaProcessor
+        return BankOfBarodaProcessor
+
+    if bank_key == "unknown":
+        from app.services.banks.unknown import UnknownProcessor
+        return UnknownProcessor
 
     return None
 

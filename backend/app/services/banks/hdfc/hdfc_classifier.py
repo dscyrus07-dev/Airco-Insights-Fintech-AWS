@@ -38,6 +38,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.banks._shared.category_registry import normalize_category
+
 logger = logging.getLogger(__name__)
 
 # ── Display map  (ONLY categories defined in keywords.json) ───────────────────
@@ -107,8 +109,10 @@ class HDFCClassifier:
             path,
             "/app/keywords.json",
             "/app/words.json",
-            str(Path(__file__).parent.parent.parent.parent.parent / "keywords.json"),
-            str(Path(__file__).parent.parent.parent.parent.parent / "words (1).json"),
+            str(Path(__file__).resolve().parents[5] / "backend" / "words.json"),
+            str(Path(__file__).resolve().parents[5] / "banks" / "hdfc" / "output" / "words.json"),
+            str(Path(__file__).resolve().parents[5] / "keywords.json"),
+            str(Path(__file__).resolve().parents[5] / "words (1).json"),
         ]
         for p in candidates:
             if not p:
@@ -456,7 +460,10 @@ class HDFCClassifier:
         display = _to_display(internal, direction)
 
         return {
-            "internal_category": internal,
+            "internal_category": normalize_category(
+                internal,
+                is_debit=bool(debit),
+            ),
             "display_category":  display,
             "confidence_score":  confidence,
             "matched_rule":      rule,

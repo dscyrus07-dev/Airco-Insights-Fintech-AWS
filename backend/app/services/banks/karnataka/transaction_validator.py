@@ -1,0 +1,1 @@
+from .processor import KarnatakaTransactionValidator, GenericValidationError as KarnatakaValidationError
