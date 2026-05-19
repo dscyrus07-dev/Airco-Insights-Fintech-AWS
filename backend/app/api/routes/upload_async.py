@@ -16,7 +16,7 @@ from ...services.task_processor import task_processor
 from ...services.event_publisher import event_publisher
 from ...services.file_history_service import file_history_service
 from ...dependencies.auth import get_current_user_optional
-from ...utils.file_handler import upload_to_minio
+from ...utils.file_handler import get_temp_dir, upload_to_minio
 from ...utils.correlation import get_correlation_id, generate_job_id
 from ...utils.logging import get_logger
 
@@ -99,13 +99,22 @@ async def upload_bank_statement_async(
     
     # Save uploaded file
     file_path = await _save_upload_file(file)
+    output_dir = get_temp_dir()
     original_filename = _safe_object_name(file.filename or "statement.pdf")
     upload_object_key = f"users/{user_id}/uploads/{Path(original_filename).stem}_{Path(file_path).name}"
-    upload_to_minio(
+    if not upload_to_minio(
         file_path,
         bucket="airco-files",
         object_key=upload_object_key,
-    )
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Failed to upload source PDF to object storage.",
+                "stage": "upload",
+                "code": "MINIO_UPLOAD_FAILED",
+            },
+        )
     
     # Prepare user info
     user_info = {
@@ -128,6 +137,7 @@ async def upload_bank_statement_async(
             "user_info": user_info,
             "mode": mode,
             "api_key": api_key,
+            "output_dir": output_dir,
             "original_filename": file.filename,
             "upload_object_key": upload_object_key,
             "batch_id": batch_id,
@@ -164,6 +174,7 @@ async def upload_bank_statement_async(
         user_id=user_id,
         original_filename=file.filename,
         upload_object_key=upload_object_key,
+        output_dir=output_dir,
     )
 
     if not published:

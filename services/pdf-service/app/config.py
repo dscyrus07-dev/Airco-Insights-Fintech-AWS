@@ -36,6 +36,19 @@ class Settings:
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
     
     # Supported Banks
-    SUPPORTED_BANKS: List[str] = ["hdfc", "axis", "icici", "kotak", "sbi"]
+    SUPPORTED_BANKS: List[str] = [
+        "hdfc",
+        "axis",
+        "icici",
+        "kotak",
+        "sbi",
+        "canara",
+        "idfc",
+        "karnataka",
+        "paytm",
+        "union",
+        "bank_of_baroda",
+        "unknown",
+    ]
     
 settings = Settings()

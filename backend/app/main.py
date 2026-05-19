@@ -11,6 +11,7 @@ from app.api.routes import sync as sync_api
 from app.api.routes import feedback as feedback_api
 from app.api.routes import jobs as jobs_api
 from app.api.routes import profile as profile_api
+from app.services.retention_service import retention_service
 from app.middleware.correlation import CorrelationMiddleware
 from app.utils.logging import get_logger
 from contextlib import asynccontextmanager
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
     await message_queue.connect()
     await event_consumer.start_consuming()
 
+    # Start retention sweep worker
+    await retention_service.start()
+
     # Start task processor as a fallback path after RabbitMQ is ready
     await task_processor.start()
     
@@ -50,6 +54,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    await retention_service.stop()
     await message_queue.close()
     await task_processor.stop()
     logger.info("Application shutdown complete")

@@ -1,35 +1,268 @@
-"""Airco Insights — Unknown Processor Module"""
+"""
+Airco Insights - Unknown Bank Processor Module
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+import logging
+import os
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-from .._shared.generic_bank import (GenericAIFallback, GenericAggregationEngine, GenericBankConfig, GenericClassifier, GenericExcelGenerator, GenericParseError, GenericParseResult, GenericParser, GenericProcessingMetrics, GenericProcessingResult, GenericProcessor, GenericProcessorError, GenericReconciliation, GenericReconciliationError, GenericRecurringEngine, GenericRuleEngine, GenericStructureError, GenericStructureMetadata, GenericStructureResult, GenericStructureValidator, GenericTransaction, GenericTransactionValidator, GenericValidationError, generate_report as _generate_report)
+from app.services.banks._shared.data_quality import compute_data_quality
+from app.services.banks._shared.generic_bank import (
+    GenericBankConfig,
+    GenericParseError,
+    GenericProcessingMetrics,
+    GenericProcessingResult,
+    GenericProcessorError,
+    GenericReconciliationError,
+    GenericStructureError,
+    GenericValidationError,
+)
+from app.services.core.data_integrity_guard import DataIntegrityGuard, IntegrityError
+from app.services.core.pdf_integrity_validator import PDFIntegrityError, PDFIntegrityValidator
 
-CONFIG = GenericBankConfig(bank_key='unknown', bank_name='Unknown', file_prefix='unknown', markers=[], support_aliases=['unknown', 'unknown bank'])
+# Import from extracted modules
+from .structure_validator import UnknownStructureValidator
+from .parser import UnknownParser, UnknownParseResult, UnknownTransaction
+from .transaction_validator import UnknownTransactionValidator
+from .reconciliation import UnknownReconciliation
+from .rule_engine import UnknownRuleEngine
+from .ai_fallback import UnknownAIFallback
+from .recurring_engine import UnknownRecurringEngine
+from .aggregation_engine import UnknownAggregationEngine
+from .excel_generator import UnknownExcelGenerator
+from .formula_excel_engine import UnknownFormulaExcelEngine
 
-class UnknownProcessorError(GenericProcessorError): pass
-class UnknownProcessingMetrics(GenericProcessingMetrics): pass
-class UnknownProcessingResult(GenericProcessingResult): pass
-class UnknownStructureValidator(GenericStructureValidator):
-    def __init__(self): super().__init__(CONFIG)
-class UnknownParser(GenericParser):
-    def __init__(self): super().__init__(CONFIG)
-class UnknownTransactionValidator(GenericTransactionValidator): pass
-class UnknownReconciliation(GenericReconciliation): pass
-class UnknownRecurringEngine(GenericRecurringEngine): pass
-class UnknownAggregationEngine(GenericAggregationEngine): pass
-class UnknownExcelGenerator(GenericExcelGenerator):
-    def __init__(self): super().__init__(CONFIG)
-class UnknownAIFallback(GenericAIFallback):
-    def __init__(self, api_key: Optional[str] = None): super().__init__(CONFIG, api_key=api_key)
-class UnknownRuleEngine(GenericRuleEngine):
-    def __init__(self, keywords_file: Optional[str] = None): super().__init__(CONFIG, keywords_file=keywords_file)
-class UnknownClassifier(GenericClassifier):
-    def __init__(self, keywords_file: Optional[str] = None): super().__init__(CONFIG, keywords_file=keywords_file)
-class UnknownFormulaExcelEngine(GenericExcelGenerator):
-    def __init__(self): super().__init__(CONFIG)
-class UnknownProcessor(GenericProcessor):
-    def __init__(self, strict_mode: bool = True, enable_ai: bool = False, api_key: Optional[str] = None): super().__init__(CONFIG, strict_mode=strict_mode, enable_ai=enable_ai, api_key=api_key)
+CONFIG = GenericBankConfig(
+    bank_key="unknown",
+    bank_name="Unknown",
+    file_prefix="unknown",
+    markers=[],
+    support_aliases=["unknown", "unknown bank"],
+)
 
-def generate_report(transactions, output_path, user_info): return _generate_report(transactions, output_path, user_info, CONFIG)
+logger = logging.getLogger(__name__)
+
+
+class UnknownProcessorError(GenericProcessorError):
+    pass
+
+
+@dataclass
+class UnknownProcessingMetrics(GenericProcessingMetrics):
+    ai_classified_count: int = 0
+    integrity_passed: bool = False
+
+
+@dataclass
+class UnknownProcessingResult(GenericProcessingResult):
+    integrity_result: Any = None
+    data_quality: str = "high"
+    reconciliation_status: str = "passed"
+    data_quality_warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload = super().to_dict()
+        payload["stats"]["ai_classified"] = self.metrics.ai_classified_count
+        payload["validation"]["integrity_passed"] = self.metrics.integrity_passed
+        payload["data_quality"] = self.data_quality
+        payload["reconciliation_status"] = self.reconciliation_status
+        payload["data_quality_warnings"] = self.data_quality_warnings
+        return payload
+
+
+class UnknownProcessor:
+    def __init__(self, strict_mode: bool = True, enable_ai: bool = False, api_key: Optional[str] = None):
+        self.strict_mode = strict_mode
+        self.enable_ai = enable_ai
+        self.api_key = api_key
+
+        self.pdf_validator = PDFIntegrityValidator()
+        self.structure_validator = UnknownStructureValidator()
+        self.parser = UnknownParser()
+        self.transaction_validator = UnknownTransactionValidator(strict_mode=False)
+        self.reconciliation = UnknownReconciliation(strict_mode=False)
+        self.rule_engine = UnknownRuleEngine()
+        self.ai_fallback = UnknownAIFallback(api_key=api_key) if (enable_ai and api_key) else None
+        self.recurring_engine = UnknownRecurringEngine()
+        self.aggregation_engine = UnknownAggregationEngine()
+        self.excel_generator = UnknownExcelGenerator()
+        self.formula_excel_engine = UnknownFormulaExcelEngine()
+        self.integrity_guard = DataIntegrityGuard(strict_mode=strict_mode)
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+    def process(self, file_path: str, user_info: Dict[str, Any], output_dir: Optional[str] = None) -> UnknownProcessingResult:
+        pipeline_start = time.monotonic()
+        metrics = UnknownProcessingMetrics()
+        try:
+            pdf_result = self._time_step("pdf_validation", lambda: self.pdf_validator.validate(file_path), metrics)
+            structure_result = self._time_step(
+                "structure_validation",
+                lambda: self.structure_validator.validate(pdf_result.text_content, pdf_result.first_page_text),
+                metrics,
+            )
+            parse_result = self._time_step("parsing", lambda: self.parser.parse(file_path, pdf_result.text_content), metrics)
+            if parse_result.total_count <= 0:
+                raise GenericParseError("Could not extract transactions from this unknown-bank PDF.", error_code="NO_TRANSACTIONS")
+
+            validated, _ = self._time_step(
+                "transaction_validation",
+                lambda: self.transaction_validator.validate([txn.to_dict() for txn in parse_result.transactions]),
+                metrics,
+            )
+            metrics.transaction_count = len(validated)
+
+            reconciliation = self._time_step(
+                "reconciliation",
+                lambda: self.reconciliation.reconcile(
+                    validated,
+                    expected_opening=structure_result.metadata.opening_balance or parse_result.opening_balance,
+                    expected_closing=structure_result.metadata.closing_balance or parse_result.closing_balance,
+                ),
+                metrics,
+            )
+            metrics.reconciliation_passed = bool(reconciliation.get("passed"))
+
+            processed_transactions, unclassified = self._time_step(
+                "classification",
+                lambda: self.rule_engine.classify(validated),
+                metrics,
+            )
+            all_transactions = processed_transactions
+            metrics.classified_count = len(processed_transactions) - len(unclassified)
+            metrics.unclassified_count = len(unclassified)
+
+            all_transactions = self._time_step("recurring_detection", lambda: self.recurring_engine.detect(all_transactions), metrics)
+            metrics.recurring_count = sum(1 for txn in all_transactions if txn.get("is_recurring"))
+
+            aggregation = self._time_step(
+                "aggregation",
+                lambda: self.aggregation_engine.aggregate(
+                    all_transactions,
+                    opening=structure_result.metadata.opening_balance or parse_result.opening_balance,
+                    closing=structure_result.metadata.closing_balance or parse_result.closing_balance,
+                ),
+                metrics,
+            )
+
+            try:
+                integrity_result = self._time_step(
+                    "integrity_check",
+                    lambda: self.integrity_guard.validate(
+                        all_transactions,
+                        expected_count=structure_result.metadata.expected_transaction_count,
+                        expected_opening_balance=structure_result.metadata.opening_balance or parse_result.opening_balance,
+                        expected_closing_balance=structure_result.metadata.closing_balance or parse_result.closing_balance,
+                        expected_total_credits=parse_result.total_credits,
+                        expected_total_debits=parse_result.total_debits,
+                    ),
+                    metrics,
+                )
+                metrics.integrity_passed = integrity_result.is_valid
+            except IntegrityError:
+                if self.strict_mode:
+                    raise
+                integrity_result = None
+                metrics.integrity_passed = False
+
+            data_quality, recon_status, dq_warnings = compute_data_quality(
+                recon_passed=metrics.reconciliation_passed,
+                corrections=0,
+                total=len(all_transactions),
+                mismatches=0 if reconciliation.get("passed") else 1,
+            )
+
+            if output_dir is None:
+                output_dir = os.path.dirname(file_path) or "."
+            excel_path = os.path.join(output_dir, f"unknown_{uuid.uuid4().hex[:12]}.xlsx")
+
+            formula_transactions = []
+            for txn in all_transactions:
+                formula_transactions.append({
+                    "date": txn.get("date", ""),
+                    "description": txn.get("description", ""),
+                    "debit": txn.get("debit"),
+                    "credit": txn.get("credit"),
+                    "balance": txn.get("balance"),
+                    "category": txn.get("category", ""),
+                    "confidence": txn.get("confidence", ""),
+                    "recurring": "Yes" if txn.get("recurring", False) else "No",
+                })
+
+            metadata = {
+                "name": user_info.get("full_name") or user_info.get("name") or "",
+                "account_no": user_info.get("account_no") or user_info.get("account_number") or "",
+                "account_type": user_info.get("account_type", ""),
+                "bank_name": CONFIG.bank_name,
+                "opening_balance": getattr(aggregation, "opening_balance", 0),
+                "closing_balance": getattr(aggregation, "closing_balance", 0),
+                "total_credits": getattr(aggregation, "total_credits", 0),
+                "total_debits": getattr(aggregation, "total_debits", 0),
+                "total_transactions": len(formula_transactions),
+                "data_quality": data_quality.value,
+                "reconciliation_status": recon_status,
+                "data_quality_warnings": dq_warnings,
+            }
+
+            try:
+                self._time_step(
+                    "excel_generation",
+                    lambda: self.formula_excel_engine.generate(formula_transactions, metadata, excel_path),
+                    metrics,
+                )
+            except Exception:
+                self.logger.warning("Formula Excel generation failed for Unknown, falling back to legacy generator", exc_info=True)
+                excel_user_info = dict(user_info or {})
+                excel_user_info["data_quality"] = data_quality.value
+                excel_user_info["reconciliation_status"] = recon_status
+                excel_user_info["data_quality_warnings"] = dq_warnings
+                self._time_step(
+                    "excel_generation",
+                    lambda: self.excel_generator.generate(all_transactions, aggregation, excel_user_info, excel_path),
+                    metrics,
+                )
+
+            metrics.total_time_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
+            return UnknownProcessingResult(
+                status="success",
+                excel_path=excel_path,
+                transactions=all_transactions,
+                aggregation=aggregation,
+                metrics=metrics,
+                bank_key=CONFIG.bank_key,
+                integrity_result=integrity_result,
+                data_quality=data_quality.value,
+                reconciliation_status=recon_status,
+                data_quality_warnings=dq_warnings,
+            )
+        except Exception as exc:
+            self.logger.error("Unknown-bank processing failed", exc_info=True)
+            if isinstance(exc, PDFIntegrityError):
+                error_code = exc.error_code
+            elif isinstance(exc, (GenericStructureError, GenericParseError, GenericValidationError, GenericReconciliationError)):
+                error_code = getattr(exc, "error_code", "PROCESSING_ERROR")
+            elif isinstance(exc, IntegrityError):
+                error_code = "INTEGRITY_FAILED"
+            else:
+                error_code = "PROCESSING_ERROR"
+            metrics.total_time_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
+            return UnknownProcessingResult(
+                status="failed",
+                excel_path=None,
+                transactions=[],
+                aggregation=None,
+                metrics=metrics,
+                bank_key=CONFIG.bank_key,
+                error_message=str(exc),
+                error_code=error_code,
+            )
+
+    def _time_step(self, step_name: str, func, metrics: UnknownProcessingMetrics):
+        started = time.time()
+        result = func()
+        metrics.step_timings[step_name] = round((time.time() - started) * 1000, 1)
+        return result

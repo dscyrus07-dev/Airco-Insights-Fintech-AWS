@@ -1,15 +1,110 @@
 param(
-    [string]$KeycloakUrl = "http://localhost:8080",
-    [string]$AdminUser = "admin",
-    [string]$AdminPassword = "admin123",
-    [string]$RealmName = "airco-insights",
-    [string]$ClientId = "frontend-app",
-    [string]$ClientSecret = "airco-frontend-secret",
-    [string]$TestEmail = "test@airco.com",
-    [string]$TestPassword = "Test123!"
+    [string]$KeycloakUrl = $(if ($env:KEYCLOAK_URL) { $env:KEYCLOAK_URL } else { "http://localhost:8080" }),
+    [string]$AdminUser = $(if ($env:KEYCLOAK_ADMIN) { $env:KEYCLOAK_ADMIN } else { "admin" }),
+    [string]$AdminPassword = $(if ($env:KEYCLOAK_ADMIN_PASSWORD) { $env:KEYCLOAK_ADMIN_PASSWORD } else { "change-me-keycloak-admin" }),
+    [string]$RealmName = $(if ($env:KEYCLOAK_REALM) { $env:KEYCLOAK_REALM } else { "airco-insights" }),
+    [string]$ClientId = $(if ($env:KEYCLOAK_CLIENT_ID) { $env:KEYCLOAK_CLIENT_ID } else { "frontend-app" }),
+    [string]$ClientSecret = $(if ($env:KEYCLOAK_CLIENT_SECRET) { $env:KEYCLOAK_CLIENT_SECRET } else { "airco-frontend-secret" }),
+    [string]$TestEmail = $(if ($env:KEYCLOAK_TEST_EMAIL) { $env:KEYCLOAK_TEST_EMAIL } else { "test@airco.com" }),
+    [string]$TestPassword = $(if ($env:KEYCLOAK_TEST_PASSWORD) { $env:KEYCLOAK_TEST_PASSWORD } else { "Test123!" })
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-BoolEnv {
+    param(
+        [string]$Name,
+        [bool]$Default = $false
+    )
+
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $Default
+    }
+
+    switch ($value.Trim().ToLowerInvariant()) {
+        "1" { return $true }
+        "true" { return $true }
+        "yes" { return $true }
+        "on" { return $true }
+        "0" { return $false }
+        "false" { return $false }
+        "no" { return $false }
+        "off" { return $false }
+        default { return $Default }
+    }
+}
+
+function Get-EnvFileValues {
+    param([string]$Path)
+
+    $values = @{}
+    if (-not (Test-Path $Path)) {
+        return $values
+    }
+
+    foreach ($line in Get-Content $Path) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith('#')) {
+            continue
+        }
+
+        if ($trimmed -match '^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+            $name = $matches[1]
+            $value = $matches[2].Trim()
+            if ((($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) -and $value.Length -ge 2) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+            $values[$name] = $value
+        }
+    }
+
+    return $values
+}
+
+function Resolve-ConfigValue {
+    param(
+        [hashtable]$EnvFileValues,
+        [string]$Name,
+        [string]$Fallback,
+        [string]$CurrentValue
+    )
+
+    $envValue = [Environment]::GetEnvironmentVariable($Name)
+    if (-not [string]::IsNullOrWhiteSpace($envValue)) {
+        return $envValue
+    }
+
+    if ($EnvFileValues.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($EnvFileValues[$Name])) {
+        return $EnvFileValues[$Name]
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CurrentValue)) {
+        return $CurrentValue
+    }
+
+    return $Fallback
+}
+
+$LocalEnvPath = Join-Path $PSScriptRoot '..\local.env'
+$LocalEnvValues = Get-EnvFileValues -Path $LocalEnvPath
+
+$KeycloakUrl = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_URL' -Fallback 'http://localhost:8080' -CurrentValue $KeycloakUrl
+$AdminUser = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_ADMIN' -Fallback 'admin' -CurrentValue $AdminUser
+$AdminPassword = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_ADMIN_PASSWORD' -Fallback 'change-me-keycloak-admin' -CurrentValue $AdminPassword
+$RealmName = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_REALM' -Fallback 'airco-insights' -CurrentValue $RealmName
+$ClientId = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_CLIENT_ID' -Fallback 'frontend-app' -CurrentValue $ClientId
+$ClientSecret = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_CLIENT_SECRET' -Fallback 'airco-frontend-secret' -CurrentValue $ClientSecret
+$TestEmail = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_TEST_EMAIL' -Fallback 'test@airco.com' -CurrentValue $TestEmail
+$TestPassword = Resolve-ConfigValue -EnvFileValues $LocalEnvValues -Name 'KEYCLOAK_TEST_PASSWORD' -Fallback 'Test123!' -CurrentValue $TestPassword
+
+if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ENABLE_KEYCLOAK_TOTP')) -and $LocalEnvValues.ContainsKey('ENABLE_KEYCLOAK_TOTP')) {
+    [Environment]::SetEnvironmentVariable('ENABLE_KEYCLOAK_TOTP', $LocalEnvValues['ENABLE_KEYCLOAK_TOTP'])
+}
+
+$EnableKeycloakTotp = Get-BoolEnv -Name "ENABLE_KEYCLOAK_TOTP" -Default $false
+$BrowserFlow = if ($EnableKeycloakTotp) { "browser-totp" } else { "browser" }
+$RequiredActions = if ($EnableKeycloakTotp) { @("CONFIGURE_TOTP") } else { @() }
 
 function Write-Log {
     param([string]$Message)
@@ -37,7 +132,18 @@ function Invoke-RestJson {
         $params.ContentType = $ContentType
     }
 
-    return Invoke-RestMethod @params
+    $params.UseBasicParsing = $true
+    $response = Invoke-WebRequest @params
+
+    if ($response.Content) {
+        try {
+            return $response.Content | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            return $response.Content
+        }
+    }
+
+    return $null
 }
 
 function Wait-ForKeycloak {
@@ -85,11 +191,13 @@ function Set-KeycloakRealm {
         duplicateEmailsAllowed = $false
         resetPasswordAllowed = $false
         editUsernameAllowed = $false
+        browserFlow = $BrowserFlow
     }
 
     try {
         $null = Invoke-RestMethod -Method Get -Uri "$KeycloakUrl/admin/realms/$RealmName" -Headers $Headers
-        Write-Log "Realm $RealmName already exists."
+        Write-Log "Realm $RealmName already exists. Updating browser flow to '$BrowserFlow'."
+        Invoke-RestJson -Method Put -Uri "$KeycloakUrl/admin/realms/$RealmName" -Headers $Headers -Body $realmPayload | Out-Null
     } catch {
         Write-Log "Creating realm $RealmName..."
         Invoke-RestJson -Method Post -Uri "$KeycloakUrl/admin/realms" -Headers $Headers -Body $realmPayload | Out-Null
@@ -114,7 +222,7 @@ function Set-KeycloakClient {
             "http://127.0.0.1:3000"
         )
         standardFlowEnabled = $true
-        directAccessGrantsEnabled = $true
+        directAccessGrantsEnabled = $false
         publicClient = $false
         protocol = "openid-connect"
         fullScopeAllowed = $false
@@ -152,7 +260,7 @@ function Set-KeycloakRole {
 function Set-KeycloakTestUser {
     param([hashtable]$Headers)
 
-    $userPayload = @{
+    $createPayload = @{
         username = $TestEmail
         enabled = $true
         email = $TestEmail
@@ -162,6 +270,7 @@ function Set-KeycloakTestUser {
         credentials = @(
             @{ type = "password"; value = $TestPassword; temporary = $false }
         )
+        requiredActions = $RequiredActions
     }
 
     $users = @()
@@ -173,11 +282,10 @@ function Set-KeycloakTestUser {
 
     if ($users.Count -gt 0) {
         Write-Log "Updating existing test user..."
-        $userId = $users[0].id
-        Invoke-RestJson -Method Put -Uri "$KeycloakUrl/admin/realms/$RealmName/users/$userId" -Headers $Headers -Body $userPayload | Out-Null
+        return $users[0].id
     } else {
         Write-Log "Creating test user..."
-        Invoke-RestJson -Method Post -Uri "$KeycloakUrl/admin/realms/$RealmName/users" -Headers $Headers -Body $userPayload | Out-Null
+        Invoke-RestJson -Method Post -Uri "$KeycloakUrl/admin/realms/$RealmName/users" -Headers $Headers -Body $createPayload | Out-Null
         $users = Invoke-RestMethod -Method Get -Uri "$KeycloakUrl/admin/realms/$RealmName/users?username=$TestEmail" -Headers $Headers
     }
 
@@ -236,19 +344,49 @@ function Add-KeycloakUserRole {
     }
 }
 
-function Test-Login {
-    Write-Log "Verifying login with test credentials..."
-    $loginResponse = Invoke-RestMethod -Method Post -Uri "$KeycloakUrl/realms/$RealmName/protocol/openid-connect/token" -ContentType 'application/x-www-form-urlencoded' -Body @{
-        username   = $TestEmail
-        password   = $TestPassword
-        grant_type = 'password'
-        client_id  = $ClientId
-        client_secret = $ClientSecret
+function Disable-KeycloakTotpForRealmUsers {
+    param([hashtable]$Headers)
+
+    if ($EnableKeycloakTotp) {
+        Write-Log "TOTP is enabled; skipping OTP credential removal."
+        return
     }
 
-    if (-not $loginResponse.access_token) {
-        throw "Login verification failed even though setup completed."
+    Write-Log "TOTP is disabled; removing otp credentials from realm users..."
+    $users = @()
+    try {
+        $users = Invoke-RestMethod -Method Get -Uri "$KeycloakUrl/admin/realms/$RealmName/users" -Headers $Headers
+    } catch {
+        Write-Log "Warning: unable to list realm users for OTP cleanup."
+        return
     }
+
+    foreach ($user in $users) {
+        if (-not $user.id) {
+            continue
+        }
+
+        try {
+            $credentials = @()
+            try {
+                $credentials = Invoke-RestMethod -Method Get -Uri "$KeycloakUrl/admin/realms/$RealmName/users/$($user.id)/credentials" -Headers $Headers
+            } catch {
+                $credentials = @()
+            }
+
+            foreach ($credential in ($credentials | Where-Object { $_.type -eq 'otp' })) {
+                if ($credential.id) {
+                    Invoke-RestMethod -Method Delete -Uri "$KeycloakUrl/admin/realms/$RealmName/users/$($user.id)/credentials/$($credential.id)" -Headers $Headers -ErrorAction Stop | Out-Null
+                }
+            }
+        } catch {
+            Write-Log "Warning: failed to disable otp for user '$($user.username)'."
+        }
+    }
+}
+
+function Test-Login {
+    Write-Log "Browser-flow login is enabled. Skipping legacy password-grant verification."
 }
 
 Wait-ForKeycloak
@@ -257,6 +395,7 @@ Set-KeycloakRealm -Headers $headers
 Set-KeycloakClient -Headers $headers
 Set-KeycloakRole -Headers $headers
 $userId = Set-KeycloakTestUser -Headers $headers
+Disable-KeycloakTotpForRealmUsers -Headers $headers
 Reset-TestPassword -Headers $headers -UserId $userId
 Add-KeycloakUserRole -Headers $headers -UserId $userId
 Test-Login

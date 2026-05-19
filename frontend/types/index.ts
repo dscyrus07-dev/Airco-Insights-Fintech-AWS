@@ -90,6 +90,7 @@ export interface JobSubmitted {
 export interface UserUploadHistoryItem {
   job_id: string
   name: string
+  display_name?: string
   bank_name?: string
   account_type?: string
   mode?: string
@@ -99,16 +100,35 @@ export interface UserUploadHistoryItem {
   created_at?: string
   upload_object_key?: string
   total_transactions?: number
+  retention_expires_at?: string | null
+  retention_days_left?: number | null
+  retention_status?: string | null
+  deletion_requested_at?: string | null
+  deleted_at?: string | null
+  deletion_reason?: string | null
+  deletion_status?: string | null
+  backup_purge_due_at?: string | null
+  backup_purge_status?: string | null
 }
 
 export interface UserReportHistoryItem {
   job_id: string
   name: string
+  display_name?: string
   bank_name?: string
   batch_id?: string | null
   statement_label?: string | null
   created_at?: string
   report_object_key?: string
+  retention_expires_at?: string | null
+  retention_days_left?: number | null
+  retention_status?: string | null
+  deletion_requested_at?: string | null
+  deleted_at?: string | null
+  deletion_reason?: string | null
+  deletion_status?: string | null
+  backup_purge_due_at?: string | null
+  backup_purge_status?: string | null
 }
 
 export interface UserBatchBankGroup {
@@ -124,6 +144,7 @@ export interface UserBatchHistoryItem {
   batch_id: string
   created_at?: string | null
   updated_at?: string | null
+  display_name?: string | null
   bank_names: string[]
   statement_count: number
   processed_count: number

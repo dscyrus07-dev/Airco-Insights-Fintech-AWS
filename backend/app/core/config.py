@@ -21,6 +21,11 @@ class Settings:
     ALLOWED_MIME_TYPES: list = ["application/pdf"]
     TEMP_DIR: str = os.getenv("TEMP_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "tmp"))
 
+    # Data retention
+    DATA_RETENTION_DAYS: int = int(os.getenv("DATA_RETENTION_DAYS", "7"))
+    RETENTION_ENABLED: bool = os.getenv("RETENTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    RETENTION_SWEEP_INTERVAL_MINUTES: int = int(os.getenv("RETENTION_SWEEP_INTERVAL_MINUTES", "60"))
+
     # PDF detection
     PDF_TEXT_THRESHOLD: int = 500
     PDF_SCAN_PAGES: int = 3

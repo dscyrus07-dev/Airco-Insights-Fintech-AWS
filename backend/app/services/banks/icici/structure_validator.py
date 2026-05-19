@@ -161,15 +161,42 @@ class ICICIStructureValidator:
         return min(markers_found / 2, 1.0)
 
     def _check_transaction_table(self, text: str) -> bool:
+        # Try multiple date formats
         date_matches = re.findall(r'\d{2}-\d{2}-\d{4}', text)
+        if len(date_matches) > 2:
+            return True
+
+        # Try alternative date formats
+        alt_date_matches = re.findall(r'\d{2}/\d{2}/\d{4}', text)
+        if len(alt_date_matches) > 2:
+            return True
+
+        # Check for transaction-related headers
         header_patterns = [
             r"DEPOSITS",
             r"WITHDRAWALS",
             r"PARTICULARS",
             r"B/F",
+            r"DATE",
+            r"MODE",
+            r"BALANCE",
+            r"TRANSACTION\s*DATE",
         ]
         has_headers = any(re.search(p, text, re.IGNORECASE) for p in header_patterns)
-        return has_headers or len(date_matches) > 2
+        if has_headers:
+            return True
+
+        # Check for amount patterns (debits/credits)
+        amount_matches = re.findall(r'[\d,]+\.\d{2}', text)
+        if len(amount_matches) > 4:
+            return True
+
+        # Final fallback: if we have ICICI markers, assume it has a table
+        icici_markers = re.search(r'ICICI|Statement\s*of\s*Transactions', text, re.IGNORECASE)
+        if icici_markers and len(text) > 1000:
+            return True
+
+        return False
 
     def _extract_metadata(self, full_text: str, header_text: str) -> ICICIStatementMetadata:
         metadata = ICICIStatementMetadata()

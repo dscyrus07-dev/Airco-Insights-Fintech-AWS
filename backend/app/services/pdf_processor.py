@@ -2,14 +2,13 @@
 PDF processing task handler for async processing.
 """
 
-import tempfile
 import os
 from typing import Dict, Any
 
 from ..models.job import Job, JobType
 from ..services.frontend_result_builder import build_frontend_processing_result
 from ..services.pipeline_orchestrator import process_statement
-from ..utils.correlation import get_correlation_id
+from ..utils.file_handler import cleanup_file
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -55,6 +54,8 @@ async def process_pdf_job(job: Job) -> Dict[str, Any]:
     except Exception as e:
         logger.error("PDF processing failed", job_id=job.id, error=str(e))
         raise
+    finally:
+        cleanup_file(file_path)
 
 def register_pdf_processor():
     """Register the PDF processor with the task processor."""

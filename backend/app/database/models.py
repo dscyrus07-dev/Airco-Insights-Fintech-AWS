@@ -35,6 +35,8 @@ class UserFileRecord(Base):
     __table_args__ = (
         Index("ix_user_file_records_user_created_at", "user_id", "created_at"),
         Index("ix_user_file_records_user_status", "user_id", "status"),
+        Index("ix_user_file_records_retention_expires_at", "retention_expires_at"),
+        Index("ix_user_file_records_deletion_status", "deletion_status"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -52,6 +54,13 @@ class UserFileRecord(Base):
     upload_object_key = Column(String(512), nullable=True)
     report_object_key = Column(String(512), nullable=True)
     report_filename = Column(String(255), nullable=True)
+    retention_expires_at = Column(DateTime, nullable=True)
+    deletion_requested_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deletion_reason = Column(String(255), nullable=True)
+    deletion_status = Column(String(50), nullable=False, default="active")
+    backup_purge_due_at = Column(DateTime, nullable=True)
+    backup_purge_status = Column(String(50), nullable=True)
     status = Column(String(50), nullable=False, default="pending")
     total_transactions = Column(Integer, nullable=True)
     error_message = Column(String, nullable=True)

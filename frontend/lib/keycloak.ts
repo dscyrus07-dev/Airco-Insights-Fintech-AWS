@@ -1,5 +1,9 @@
 import { clearStoredTokens, getValidSessionAccessToken } from './sessionToken'
 
+const KEYCLOAK_URL = process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'http://localhost:8080'
+const KEYCLOAK_REALM = process.env.NEXT_PUBLIC_KEYCLOAK_REALM || 'airco-insights'
+const KEYCLOAK_CLIENT_ID = process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || 'frontend-app'
+
 type TokenPayload = {
   sub?: string
   email?: string
@@ -29,7 +33,33 @@ function decodePayload(token: string): TokenPayload | null {
 
 export const initKeycloak = async () => false
 
-export const login = () => Promise.resolve()
+function buildKeycloakLoginUrl() {
+  if (typeof window === 'undefined') return ''
+
+  const redirectUri = `${window.location.origin}/auth/callback`
+  const url = new URL(`${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth`)
+  url.searchParams.set('client_id', KEYCLOAK_CLIENT_ID)
+  url.searchParams.set('redirect_uri', redirectUri)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('scope', 'openid profile email')
+  url.searchParams.set('prompt', 'login')
+  return url.toString()
+}
+
+export const getKeycloakLoginRedirectUri = () => {
+  if (typeof window === 'undefined') return `${KEYCLOAK_URL}/auth/callback`
+  return `${window.location.origin}/auth/callback`
+}
+
+export const login = () => {
+  if (typeof window === 'undefined') return Promise.resolve()
+
+  const url = buildKeycloakLoginUrl()
+  if (url) {
+    window.location.assign(url)
+  }
+  return Promise.resolve()
+}
 
 export const logout = () => {
   clearStoredTokens()

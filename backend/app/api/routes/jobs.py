@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 from typing import Optional, List
 
-import boto3
-from botocore.client import Config as BotoConfig
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse, Response
 
@@ -76,6 +74,15 @@ def _ensure_job_access(job: Job, current_user: Optional[dict]) -> None:
 
 
 def _download_from_minio(bucket: str, object_key: str) -> bytes:
+    try:
+        import boto3
+        from botocore.client import Config as BotoConfig
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="MinIO download is unavailable because the boto3 dependency is not installed.",
+        ) from e
+
     endpoint = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
     access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
     secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
@@ -205,8 +212,8 @@ async def delete_job(
     
     if await redis_job_store.get_job(job_id):
         await redis_job_store.delete_job(job_id)
-    else:
-        file_history_service.delete_file(job.user_id or "", job_id)
+    if not file_history_service.delete_file(job.user_id or "", job_id):
+        raise HTTPException(status_code=404, detail="File not found or access denied")
     return {"message": "Job deleted successfully"}
 
 @router.post("/{job_id}/cancel")

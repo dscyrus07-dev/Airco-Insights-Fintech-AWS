@@ -2,7 +2,16 @@
 Bank processors package initialization.
 """
 
-from .factory import BankProcessorFactory
+from .factory import (
+    BankProcessorFactory,
+    CanaraProcessor,
+    IDFCProcessor,
+    KarnatakaProcessor,
+    PaytmProcessor,
+    UnionProcessor,
+    BankOfBarodaProcessor,
+    UnknownProcessor,
+)
 from .base_processor import BaseBankProcessor
 from .hdfc_processor import HDFCProcessor
 
@@ -63,4 +72,11 @@ __all__ = [
     'ICICIProcessor',
     'KotakProcessor',
     'SBIProcessor'
+    , 'CanaraProcessor',
+    'IDFCProcessor',
+    'KarnatakaProcessor',
+    'PaytmProcessor',
+    'UnionProcessor',
+    'BankOfBarodaProcessor',
+    'UnknownProcessor'
 ]

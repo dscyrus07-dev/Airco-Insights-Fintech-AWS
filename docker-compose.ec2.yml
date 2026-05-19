@@ -72,6 +72,28 @@ services:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:-change-me-s3-access}
       MINIO_SECRET_KEY: ${S3_SECRET_KEY:-change-me-s3-secret}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-7}
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      RETENTION_SWEEP_INTERVAL_MINUTES: ${RETENTION_SWEEP_INTERVAL_MINUTES:-60}
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+      pdf-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      report-service:
+        condition: service_healthy
+      app-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   frontend:
     ports: []

@@ -31,6 +31,22 @@ const formatBatchLabel = (batchId: string) => {
   return batchId.length > 18 ? `${batchId.slice(0, 18)}…` : batchId
 }
 
+const formatRetentionLabel = (
+  status?: string | null,
+  daysLeft?: number | null,
+  deletedAt?: string | null,
+) => {
+  const normalizedStatus = (status || '').toLowerCase()
+  if (normalizedStatus === 'deleted' || deletedAt) return 'Deleted'
+  if (normalizedStatus === 'queued for deletion' || normalizedStatus === 'scheduled' || normalizedStatus === 'deleting') {
+    return 'Queued for deletion'
+  }
+  if (daysLeft === 0) return 'Deletes today'
+  if (daysLeft === 1) return '1 day left'
+  if (typeof daysLeft === 'number' && daysLeft > 1) return `${daysLeft} days left`
+  return status || 'Retention pending'
+}
+
 const createBatchId = () => `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 const APP_API_BASE = '/api'
@@ -83,23 +99,33 @@ export default function Dashboard() {
   const [uploadedStatements, setUploadedStatements] = useState<Array<{
     id: string
     name: string
+    displayName?: string
     bank: string
     date: string
     batchId?: string | null
     statementLabel?: string | null
     accountType?: string | null
     status: 'Processed' | 'Pending' | 'Processing' | 'Failed'
+    retentionStatus?: string | null
+    retentionDaysLeft?: number | null
+    retentionExpiresAt?: string | null
+    deletedAt?: string | null
   }>>([])
 
   const [generatedReports, setGeneratedReports] = useState<Array<{
     id: string
     name: string
+    displayName?: string
     bank: string
     date: string
     batchId?: string | null
     statementLabel?: string | null
     accountType?: string | null
     downloadUrl: string
+    retentionStatus?: string | null
+    retentionDaysLeft?: number | null
+    retentionExpiresAt?: string | null
+    deletedAt?: string | null
   }>>([])
 
   useEffect(() => {
@@ -162,10 +188,15 @@ export default function Dashboard() {
         (data.uploads || []).map((item: any) => ({
           id: item.job_id,
           name: item.name,
+          displayName: item.display_name || item.name,
           bank: item.bank_name || 'Unknown',
           date: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '',
           batchId: item.batch_id || null,
           statementLabel: item.statement_label || null,
+          retentionStatus: item.retention_status || null,
+          retentionDaysLeft: typeof item.retention_days_left === 'number' ? item.retention_days_left : null,
+          retentionExpiresAt: item.retention_expires_at || null,
+          deletedAt: item.deleted_at || null,
           status:
             item.status === 'completed'
               ? 'Processed'
@@ -180,11 +211,16 @@ export default function Dashboard() {
         (data.reports || []).map((item: any) => ({
           id: item.job_id,
           name: item.name,
+          displayName: item.display_name || item.name,
           bank: item.bank_name || 'Unknown',
           date: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '',
           batchId: item.batch_id || null,
           statementLabel: item.statement_label || null,
           downloadUrl: `/api/jobs/${item.job_id}/download`,
+          retentionStatus: item.retention_status || null,
+          retentionDaysLeft: typeof item.retention_days_left === 'number' ? item.retention_days_left : null,
+          retentionExpiresAt: item.retention_expires_at || null,
+          deletedAt: item.deleted_at || null,
         }))
       )
     } catch (fetchError) {
@@ -429,6 +465,12 @@ export default function Dashboard() {
       ? ` • ${(item as UserUploadHistoryItem).account_type}`
       : ''
     const statementLabel = item.statement_label ? ` • ${item.statement_label}` : ''
+    const retentionLabel = formatRetentionLabel(item.retention_status, item.retention_days_left, item.deleted_at)
+    const retentionTone = (item.deletion_status || '').toLowerCase() === 'deleted'
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : (item.deletion_status || '').toLowerCase() === 'queued for deletion' || (item.deletion_status || '').toLowerCase() === 'deleting' || (item.deletion_status || '').toLowerCase() === 'scheduled'
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-neutral-200 bg-neutral-50 text-neutral-600'
 
     return (
       <div
@@ -453,10 +495,20 @@ export default function Dashboard() {
           {isUpload ? <FileText className="h-4 w-4" /> : <FileSpreadsheet className="h-4 w-4" />}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="truncate text-sm font-medium text-black">{item.name}</p>
+          <p className="truncate text-sm font-medium text-black">{item.display_name || item.name}</p>
           <p className="text-xs text-neutral-500">
             {bankLabel}{accountTypeLabel}{statementLabel} • {createdLabel}
           </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${retentionTone}`}>
+              {retentionLabel}
+            </span>
+            {item.retention_expires_at && (
+              <span className="text-[10px] text-neutral-400">
+                Deletes on {new Date(item.retention_expires_at).toLocaleDateString()}
+              </span>
+            )}
+          </div>
         </div>
         {isUpload ? (
           <div
@@ -480,7 +532,7 @@ export default function Dashboard() {
           <button
             onClick={async () => {
               const confirmed = window.confirm(
-                `Are you sure you want to delete "${item.name}"?`
+                `Are you sure you want to delete "${item.display_name || item.name}"?`
               )
               if (!confirmed) return
 
@@ -823,7 +875,7 @@ export default function Dashboard() {
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-sm font-semibold text-black">
-                                      {formatBatchLabel(batch.batch_id)}
+                                      {batch.display_name || formatBatchLabel(batch.batch_id)}
                                     </p>
                                     <p className="mt-1 text-xs text-neutral-500">
                                       {batch.statement_count} statement(s) • {batch.processed_count} processed • {batch.failed_count} failed
@@ -904,8 +956,18 @@ export default function Dashboard() {
                               <FileText className="h-4 w-4" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="truncate text-sm font-medium text-black">{item.name}</p>
+                              <p className="truncate text-sm font-medium text-black">{item.displayName || item.name}</p>
                               <p className="text-xs text-neutral-500">{item.date}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${formatRetentionLabel(item.retentionStatus, item.retentionDaysLeft, item.deletedAt) === 'Deleted' ? 'border-red-200 bg-red-50 text-red-700' : 'border-neutral-200 bg-neutral-50 text-neutral-600'}`}>
+                                  {formatRetentionLabel(item.retentionStatus, item.retentionDaysLeft, item.deletedAt)}
+                                </span>
+                                {item.retentionExpiresAt && (
+                                  <span className="text-[10px] text-neutral-400">
+                                    Deletes on {new Date(item.retentionExpiresAt).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className={`h-2 w-2 rounded-full ${
                               item.status === 'Processed' ? 'bg-green-500' :
@@ -917,7 +979,7 @@ export default function Dashboard() {
                               <button
                                 onClick={async () => {
                                   const confirmed = window.confirm(
-                                    `Are you sure you want to delete "${item.name}"?`
+                                    `Are you sure you want to delete "${item.displayName || item.name}"?`
                                   )
                                   if (!confirmed) return
 
@@ -981,8 +1043,18 @@ export default function Dashboard() {
                               <FileSpreadsheet className="h-4 w-4" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="truncate text-sm font-medium text-black">{item.name}</p>
+                              <p className="truncate text-sm font-medium text-black">{item.displayName || item.name}</p>
                               <p className="text-xs text-neutral-500">{item.date}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${formatRetentionLabel(item.retentionStatus, item.retentionDaysLeft, item.deletedAt) === 'Deleted' ? 'border-red-200 bg-red-50 text-red-700' : 'border-neutral-200 bg-neutral-50 text-neutral-600'}`}>
+                                  {formatRetentionLabel(item.retentionStatus, item.retentionDaysLeft, item.deletedAt)}
+                                </span>
+                                {item.retentionExpiresAt && (
+                                  <span className="text-[10px] text-neutral-400">
+                                    Deletes on {new Date(item.retentionExpiresAt).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
                               <a
@@ -995,7 +1067,7 @@ export default function Dashboard() {
                               <button
                                 onClick={async () => {
                                   const confirmed = window.confirm(
-                                    `Are you sure you want to delete "${item.name}"?`
+                                    `Are you sure you want to delete "${item.displayName || item.name}"?`
                                   )
                                   if (!confirmed) return
 

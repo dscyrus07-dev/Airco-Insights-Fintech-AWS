@@ -2,6 +2,8 @@
 RabbitMQ message queue client for event-driven architecture.
 """
 
+from __future__ import annotations
+
 import asyncio
 import inspect
 import json
@@ -10,7 +12,10 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
-import pika
+try:
+    import pika
+except ImportError:
+    pika = None
 
 from ..core.config import settings
 from ..utils.logging import get_logger
@@ -34,7 +39,13 @@ class MessageQueue:
         self._lock = threading.Lock()
 
     def _create_connection(self) -> None:
+        if pika is None:
+            raise RuntimeError("RabbitMQ support is unavailable because pika is not installed")
         parameters = pika.URLParameters(self.connection_url)
+        # Increase heartbeat to 300s (5 min) for long bank processing tasks
+        # Blocked connection timeout must be > heartbeat to avoid false timeouts
+        parameters.heartbeat = 300
+        parameters.blocked_connection_timeout = 150
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
         self.channel.basic_qos(prefetch_count=1)
@@ -42,7 +53,12 @@ class MessageQueue:
         self._connected = True
 
     def _probe_connection(self) -> None:
+        if pika is None:
+            raise RuntimeError("RabbitMQ support is unavailable because pika is not installed")
         parameters = pika.URLParameters(self.connection_url)
+        # Use same heartbeat settings for consistency
+        parameters.heartbeat = 300
+        parameters.blocked_connection_timeout = 150
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
         channel.basic_qos(prefetch_count=1)
@@ -86,6 +102,8 @@ class MessageQueue:
             channel.queue_bind(queue=queue_name, exchange=exchange, routing_key=routing_key)
 
     def _ensure_publisher_channel(self):
+        if pika is None:
+            return None
         if (
             self._publisher_connection
             and self._publisher_connection.is_open
@@ -95,6 +113,9 @@ class MessageQueue:
             return self._publisher_channel
 
         parameters = pika.URLParameters(self.connection_url)
+        # Extended heartbeat for long processing tasks
+        parameters.heartbeat = 300
+        parameters.blocked_connection_timeout = 150
         self._publisher_connection = pika.BlockingConnection(parameters)
         self._publisher_channel = self._publisher_connection.channel()
         self._publisher_channel.basic_qos(prefetch_count=1)
@@ -113,6 +134,11 @@ class MessageQueue:
 
     async def connect(self):
         """Connect to RabbitMQ without blocking the event loop."""
+        if pika is None:
+            self._connected = False
+            logger.warning("RabbitMQ unavailable; continuing without queue support")
+            return False
+
         try:
             await asyncio.to_thread(self._probe_connection)
             logger.info("Connected to RabbitMQ", url=self.connection_url)
@@ -137,21 +163,28 @@ class MessageQueue:
                     result = user_callback(payload)
 
                 if result is False:
-                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
                 else:
                     ch.basic_ack(delivery_tag=method.delivery_tag)
             except Exception as e:
                 logger.error("Consumer failed", queue=queue_name, error=str(e))
-                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
         return _callback
 
     def _start_consumer_loop(self):
+        if pika is None:
+            logger.warning("RabbitMQ unavailable; consumer loop will not start")
+            return
+
         while not self._stop_event.is_set():
             connection = None
             channel = None
             try:
                 parameters = pika.URLParameters(self.connection_url)
+                # Extended heartbeat for long processing tasks
+                parameters.heartbeat = 300
+                parameters.blocked_connection_timeout = 150
                 connection = pika.BlockingConnection(parameters)
                 channel = connection.channel()
                 channel.basic_qos(prefetch_count=1)
@@ -198,6 +231,10 @@ class MessageQueue:
 
     async def start_consuming(self):
         """Start consuming messages in a background thread."""
+        if pika is None:
+            logger.warning("RabbitMQ unavailable; consumer thread not started")
+            return
+
         if self._consumer_thread and self._consumer_thread.is_alive():
             return
 
@@ -214,8 +251,15 @@ class MessageQueue:
         headers: Optional[Dict[str, Any]] = None,
     ) -> bool:
         try:
+            if pika is None:
+                logger.warning("RabbitMQ unavailable; message not published", exchange=exchange, routing_key=routing_key)
+                return False
+
             with self._lock:
                 channel = self._ensure_publisher_channel()
+                if channel is None:
+                    logger.warning("RabbitMQ publisher channel unavailable; message not published", exchange=exchange, routing_key=routing_key)
+                    return False
                 body = json.dumps(message).encode("utf-8")
                 channel.basic_publish(
                     exchange=exchange,
@@ -258,6 +302,10 @@ class MessageQueue:
         """Close the connection and stop consumers."""
         self._stop_event.set()
         self._close_publisher_connection()
+        if pika is None:
+            self._connected = False
+            logger.info("RabbitMQ support unavailable; queue already disabled")
+            return
         if self.connection and self.connection.is_open:
             try:
                 self.connection.add_callback_threadsafe(lambda: self.channel and self.channel.stop_consuming())

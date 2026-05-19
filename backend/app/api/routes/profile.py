@@ -65,5 +65,7 @@ async def delete_file(
             raise HTTPException(status_code=404, detail="File not found or access denied")
         
         return {"message": "File deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")

@@ -23,10 +23,9 @@ from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse
-import pikepdf
 
 from app.core.security import validate_upload_file, validate_file_size
-from app.utils.file_handler import save_temp_file, get_temp_dir, upload_to_minio
+from app.utils.file_handler import cleanup_file, save_temp_file, get_temp_dir, upload_to_minio
 from app.services.pipeline_orchestrator import (
     process_statement as run_pipeline,
     PipelineValidationError,
@@ -190,6 +189,8 @@ async def upload_bank_statement(
         JSON with processed data, validation status, and download URL
     """
     temp_pdf_path = None
+    original_temp_pdf_path = None
+    decrypted_pdf_path = None
     account_type = (account_type or "").strip().lower()
     
     try:
@@ -210,15 +211,24 @@ async def upload_bank_statement(
         
         # 3. Save to temp file
         temp_pdf_path = save_temp_file(content, extension=".pdf")
+        original_temp_pdf_path = temp_pdf_path
 
         # 3b. Store uploaded PDF in MinIO airco-files bucket (user-scoped path)
         user_id = _extract_user_id(current_user)
         safe_pdf_name = os.path.basename(file.filename or "statement.pdf")
-        upload_to_minio(
+        if not upload_to_minio(
             temp_pdf_path,
             bucket="airco-files",
             object_key=f"users/{user_id}/uploads/{os.path.splitext(safe_pdf_name)[0]}_{os.path.basename(temp_pdf_path)}",
-        )
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Failed to upload source PDF to object storage.",
+                    "stage": "upload",
+                    "code": "MINIO_UPLOAD_FAILED",
+                },
+            )
         logger.info("PDF stored in MinIO for user: %s", user_id)
 
         # 4. Check if PDF is password-protected and unlock if needed
@@ -237,7 +247,8 @@ async def upload_bank_statement(
                 )
             elif password_check["decrypted_path"]:
                 # Password worked, use decrypted file
-                temp_pdf_path = password_check["decrypted_path"]
+                decrypted_pdf_path = password_check["decrypted_path"]
+                temp_pdf_path = decrypted_pdf_path
                 logger.info("PDF unlocked successfully, using decrypted file")
             else:
                 # Password failed
@@ -309,11 +320,19 @@ async def upload_bank_statement(
         # 7. Store generated Excel in MinIO airco-reports bucket (user-scoped path)
         excel_path = result.get("excel_path", "")
         if excel_path and os.path.isfile(excel_path):
-            upload_to_minio(
+            if not upload_to_minio(
                 excel_path,
                 bucket="airco-reports",
                 object_key=f"users/{user_id}/reports/{os.path.basename(excel_path)}",
-            )
+            ):
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "Failed to upload generated report to object storage.",
+                        "stage": "upload",
+                        "code": "MINIO_UPLOAD_FAILED",
+                    },
+                )
             logger.info("Excel stored in MinIO for user: %s", user_id)
 
         if excel_path:
@@ -368,6 +387,11 @@ async def upload_bank_statement(
                 "code": "UNEXPECTED_ERROR",
             }
         )
+    finally:
+        cleanup_file(original_temp_pdf_path)
+        cleanup_file(temp_pdf_path)
+        if decrypted_pdf_path and decrypted_pdf_path != temp_pdf_path:
+            cleanup_file(decrypted_pdf_path)
 
 
 def _check_pdf_password(file_path: str, password: str = None) -> dict:
@@ -377,6 +401,14 @@ def _check_pdf_password(file_path: str, password: str = None) -> dict:
     Returns:
         {"is_locked": bool, "decrypted_path": str or None, "error": str or None}
     """
+    try:
+        import pikepdf
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="PDF password checking is unavailable because the pikepdf dependency is not installed.",
+        ) from e
+
     try:
         # Try to open without password
         pdf = pikepdf.open(file_path)
@@ -499,15 +531,57 @@ async def get_supported_banks():
             },
             {
                 "key": "kotak",
-                "name": "Kotak Mahindra Bank",
+                "name": "Kotak Bank",
                 "status": "available",
                 "accuracy": "99%+",
             },
             {
                 "key": "sbi",
                 "name": "SBI",
-                "status": "coming_soon",
-                "accuracy": None,
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "canara",
+                "name": "Canara Bank",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "idfc",
+                "name": "IDFC First Bank",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "karnataka",
+                "name": "Karnataka Bank",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "paytm",
+                "name": "Paytm Bank",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "union",
+                "name": "Union Bank of India",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "bank_of_baroda",
+                "name": "Bank of Baroda",
+                "status": "available",
+                "accuracy": "99%+",
+            },
+            {
+                "key": "unknown",
+                "name": "Unknown",
+                "status": "available",
+                "accuracy": "99%+",
             },
         ],
         "default_mode": "free",

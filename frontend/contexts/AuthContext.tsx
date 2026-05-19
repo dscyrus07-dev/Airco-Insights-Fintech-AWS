@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { keycloak, initKeycloak, login, logout, getToken, isTokenValid, updateToken, getUserInfo, hasRole, isAuthenticated } from '../lib/keycloak'
+import { keycloak, login, logout, getToken, isTokenValid, updateToken, hasRole, isAuthenticated } from '../lib/keycloak'
 import { clearStoredTokens, getValidSessionAccessToken } from '../lib/sessionToken'
 
 export interface User {
@@ -117,8 +117,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [])
 
   const handleLogin = async () => {
-    // Disable Keycloak redirect login for custom form flow
-    // await login()
+    await login()
   }
 
   const handleLogout = async () => {

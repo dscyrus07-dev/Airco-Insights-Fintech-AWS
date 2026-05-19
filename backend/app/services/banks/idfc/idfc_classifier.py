@@ -1,2 +1,17 @@
-from app.services.banks._shared.category_registry import normalize_category
-from .processor import IDFCClassifier
+"""Airco Insights - IDFC Bank Classifier."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from app.services.banks._shared.generic_bank import GenericClassifier
+
+from .rule_engine import CONFIG
+
+
+class IDFCClassifier(GenericClassifier):
+    def __init__(self, keywords_file: Optional[str] = None):
+        super().__init__(CONFIG, keywords_file=keywords_file)
+
+
+__all__ = ["IDFCClassifier"]

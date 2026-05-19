@@ -86,17 +86,33 @@ async def verify_token_post(current_user: Optional[User] = Depends(get_current_u
 
 @router.post("/login")
 async def login(credentials: UserLogin):
-    """Authenticate a user through Keycloak and return access tokens."""
-    logger.info("Login requested", email=credentials.email)
-    token_data = await _request_keycloak_tokens(
-        "password",
-        {
-            "username": credentials.email,
-            "password": credentials.password,
-            "scope": "openid profile email",
-        },
+    """Legacy password-grant login is disabled. Use the browser-based Keycloak flow instead."""
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy password-grant login is disabled. Use the browser-based Keycloak flow instead.",
     )
-    return token_data
+
+
+@router.post("/callback")
+async def exchange_authorization_code(payload: dict[str, str]):
+    """Exchange a browser-flow authorization code for tokens."""
+    code = payload.get("code")
+    redirect_uri = payload.get("redirect_uri")
+    code_verifier = payload.get("code_verifier")
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code is required")
+    if not redirect_uri:
+        raise HTTPException(status_code=400, detail="Redirect URI is required")
+
+    token_payload: dict[str, str] = {
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    if code_verifier:
+        token_payload["code_verifier"] = code_verifier
+
+    return await _request_keycloak_tokens("authorization_code", token_payload)
 
 
 @router.post("/refresh")

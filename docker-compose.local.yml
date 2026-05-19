@@ -23,6 +23,9 @@ services:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-7}
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      RETENTION_SWEEP_INTERVAL_MINUTES: ${RETENTION_SWEEP_INTERVAL_MINUTES:-60}
     volumes:
       - backend_tmp:/app/tmp
 
@@ -90,6 +93,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: change-me-keycloak-admin
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: change-me-keycloak-db
+      ENABLE_KEYCLOAK_TOTP: ${ENABLE_KEYCLOAK_TOTP:-false}
       KC_HOSTNAME: localhost
       KC_HOSTNAME_PORT: 8080
       KC_HOSTNAME_STRICT: false

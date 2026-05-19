@@ -14,6 +14,28 @@ from ...utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class GenericBankReportGenerator(BaseBankReportGenerator):
+    """Fallback report generator for banks that use the standard workbook layout."""
+
+    def __init__(self, bank_name: str):
+        super().__init__(bank_name)
+
+    async def generate_sheets(
+        self,
+        workbook: Workbook,
+        transactions: List[Dict[str, Any]],
+        user_info: Dict[str, Any],
+        ai_results: Any,
+        options: Dict[str, Any],
+    ) -> List[str]:
+        created_sheets = [
+            self._create_transactions_sheet(workbook, transactions),
+            self._create_summary_sheet(workbook, transactions),
+            self._create_category_analysis_sheet(workbook, transactions),
+        ]
+        return created_sheets
+
 class BankReportGeneratorFactory:
     """Factory for creating bank-specific report generators."""
     
@@ -23,7 +45,14 @@ class BankReportGeneratorFactory:
             'axis': AxisReportGenerator(),
             'icici': ICICIReportGenerator(),
             'kotak': KotakReportGenerator(),
-            'sbi': SBIReportGenerator()
+            'sbi': SBIReportGenerator(),
+            'canara': GenericBankReportGenerator('canara'),
+            'idfc': GenericBankReportGenerator('idfc'),
+            'karnataka': GenericBankReportGenerator('karnataka'),
+            'paytm': GenericBankReportGenerator('paytm'),
+            'union': GenericBankReportGenerator('union'),
+            'bank_of_baroda': GenericBankReportGenerator('bank_of_baroda'),
+            'unknown': GenericBankReportGenerator('unknown'),
         }
 
     def _normalize_bank_key(self, bank_name: str) -> str:
@@ -40,6 +69,17 @@ class BankReportGeneratorFactory:
             "kotakmahindrabank": "kotak",
             "statebankofindia": "sbi",
             "statebank": "sbi",
+            "canarabank": "canara",
+            "idfcbank": "idfc",
+            "idfcfirst": "idfc",
+            "idfcfirstbank": "idfc",
+            "karnatakabank": "karnataka",
+            "paytmbank": "paytm",
+            "unionbank": "union",
+            "unionbankofindia": "union",
+            "bankofbaroda": "bank_of_baroda",
+            "bob": "bank_of_baroda",
+            "unknownbank": "unknown",
         }
         bank_key = aliases.get(bank_key, bank_key)
         

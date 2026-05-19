@@ -62,6 +62,7 @@ class EventPublisher:
         user_id: Optional[str] = None,
         original_filename: Optional[str] = None,
         upload_object_key: Optional[str] = None,
+        output_dir: Optional[str] = None,
     ) -> bool:
         """Publish the initial file-processing request event."""
         event = {
@@ -75,6 +76,7 @@ class EventPublisher:
             "user_id": user_id,
             "original_filename": original_filename,
             "upload_object_key": upload_object_key,
+            "output_dir": output_dir,
         }
 
         success = await message_queue.publish_message(

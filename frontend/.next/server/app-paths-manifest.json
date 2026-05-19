@@ -1,6 +1,7 @@
 {
   "/_global-error/page": "app/_global-error/page.js",
   "/_not-found/page": "app/_not-found/page.js",
+  "/api/auth/callback/route": "app/api/auth/callback/route.js",
   "/api/auth/login/route": "app/api/auth/login/route.js",
   "/api/auth/refresh/route": "app/api/auth/refresh/route.js",
   "/api/check-pdf/route": "app/api/check-pdf/route.js",
@@ -11,6 +12,7 @@
   "/api/sync/route": "app/api/sync/route.js",
   "/api/unlock-pdf/route": "app/api/unlock-pdf/route.js",
   "/api/upload/route": "app/api/upload/route.js",
+  "/auth/callback/page": "app/auth/callback/page.js",
   "/dashboard/page": "app/dashboard/page.js",
   "/page": "app/page.js"
 }

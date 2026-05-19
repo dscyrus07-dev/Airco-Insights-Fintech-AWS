@@ -12,7 +12,7 @@ from .pipeline_orchestrator import process_statement
 from .redis_job_store import redis_job_store
 from .file_history_service import file_history_service
 from .frontend_result_builder import build_frontend_processing_result
-from ..utils.file_handler import upload_to_minio
+from ..utils.file_handler import cleanup_file, upload_to_minio, download_from_minio
 from ..models.job import JobStatus, JobUpdate
 from ..utils.correlation import set_correlation_id
 from ..utils.logging import get_logger
@@ -48,22 +48,34 @@ class EventConsumer:
         if correlation_id:
             set_correlation_id(correlation_id)
 
-        file_path = payload.get("file_path")
+        upload_object_key = payload.get("upload_object_key")
         user_info = payload.get("user_info", {})
         mode = payload.get("mode", "free")
         api_key = payload.get("api_key")
         user_id = payload.get("user_id") or "anonymous"
         original_filename = payload.get("original_filename") or "statement.pdf"
-        output_dir = payload.get("output_dir") or (os.path.dirname(file_path) if file_path else None)
+        output_dir = payload.get("output_dir")
 
         if not job_id:
             logger.warning("file_upload event missing job_id; skipping job update")
             return True
 
-        try:
-            if not file_path:
-                raise ValueError("file_path is required in queue payload")
+        if not upload_object_key:
+            raise ValueError("upload_object_key is required in queue payload")
 
+        # Download file from MinIO to local temp
+        file_path = download_from_minio(
+            bucket="airco-files",
+            object_key=upload_object_key,
+        )
+
+        if not file_path or not os.path.isfile(file_path):
+            raise ValueError(f"Failed to download file from MinIO: {upload_object_key}")
+
+        if not output_dir:
+            output_dir = os.path.dirname(file_path)
+
+        try:
             await self._mark_job(job_id, JobStatus.RUNNING)
             try:
                 file_history_service.mark_running(job_id)
@@ -86,9 +98,7 @@ class EventConsumer:
                     object_key=excel_object_key,
                 )
                 result["excel_object_key"] = excel_object_key
-                result["source_pdf_object_key"] = payload.get("upload_object_key") or (
-                    f"users/{user_id}/uploads/{Path(safe_original).stem}_{Path(file_path).name}"
-                )
+                result["source_pdf_object_key"] = upload_object_key
             frontend_result = build_frontend_processing_result(
                 result,
                 mode=mode,
@@ -109,6 +119,8 @@ class EventConsumer:
             except Exception as fe:
                 logger.warning("Failed to update file history service for failed status", job_id=job_id, error=str(fe))
             return False
+        finally:
+            cleanup_file(file_path)
 
     async def _handle_pipeline_result(self, payload: Dict[str, Any]):
         """Compatibility handler for downstream queues."""

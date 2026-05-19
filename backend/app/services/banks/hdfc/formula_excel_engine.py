@@ -739,10 +739,16 @@ class FormulaExcelEngine:
             cell.alignment = self.ALIGN_CENTER
             cell.border = self.BORDER_THIN
 
+        warnings_value = metadata.get('data_quality_warnings') or 'None'
+        if isinstance(warnings_value, (list, tuple, set)):
+            warnings_value = '; '.join(str(item) for item in warnings_value if item not in (None, '')) or 'None'
+        elif warnings_value is None:
+            warnings_value = 'None'
+
         quality_rows = [
-            ('Data Quality', metadata.get('data_quality', 'high')),
-            ('Reconciliation', metadata.get('reconciliation_status', 'passed')),
-            ('Warnings', metadata.get('data_quality_warnings') or 'None'),
+            ('Data Quality', str(metadata.get('data_quality', 'high'))),
+            ('Reconciliation', str(metadata.get('reconciliation_status', 'passed'))),
+            ('Warnings', str(warnings_value)),
         ]
         for row_offset, (label, value) in enumerate(quality_rows, 17):
             label_cell = ws.cell(row=row_offset, column=1, value=label)

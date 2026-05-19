@@ -407,10 +407,21 @@ class GenericClassifier:
 
         return default_category, 0.5, "rule_engine", "default", None
 
+    def get_category_stats(self) -> Dict[str, Any]:
+        """Return lightweight classifier metadata for logging and diagnostics."""
+        return {
+            "bank_key": self.bank_config.bank_key,
+            "bank_name": self.bank_config.bank_name,
+            "entity_aliases": len(getattr(self, "_entity_lookup", {})),
+            "upi_handles": len(getattr(self, "_upi_handles", [])),
+            "loan_patterns": len(getattr(self, "_loan_patterns", [])),
+            "refund_patterns": len(getattr(self, "_refund_patterns", [])),
+        }
+
     def _debit_rules(self) -> Dict[str, Dict[str, Any]]:
         return {
             "ATM Withdrawal": {"exact": {"atm", "cash withdrawal", "wdl atm"}, "patterns": [re.compile(r"atm.*withdraw", re.IGNORECASE)]},
-            "Loan EMI": {"exact": {"emi", "loan"}, "patterns": [re.compile(r".*emi.*", re.IGNORECASE), re.compile(r".*loan.*", re.IGNORECASE)]},
+            "Loan EMI": {"exact": {"emi", "loan emi", "loan payment"}, "patterns": [re.compile(r"loan.*emi", re.IGNORECASE), re.compile(r".*loan.*", re.IGNORECASE)]},
             "Fuel": {"exact": {"petrol", "diesel", "fuel"}, "patterns": [re.compile(r".*fuel.*", re.IGNORECASE)]},
             "Shopping": {"exact": {"amazon", "flipkart", "myntra", "ajio"}, "patterns": [re.compile(r".*shopping.*", re.IGNORECASE)]},
             "Food & Dining": {"exact": {"swiggy", "zomato", "restaurant", "cafe"}, "patterns": [re.compile(r".*food.*", re.IGNORECASE)]},

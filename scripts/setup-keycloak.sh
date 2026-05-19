@@ -13,6 +13,19 @@ REALM_NAME=${KEYCLOAK_REALM:-airco-insights}
 CLIENT_ID=${KEYCLOAK_CLIENT_ID:-frontend-app}
 CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-REPLACE_ME}
 
+ENABLE_KEYCLOAK_TOTP=${ENABLE_KEYCLOAK_TOTP:-false}
+
+case "${ENABLE_KEYCLOAK_TOTP,,}" in
+  1|true|yes|on)
+    BROWSER_FLOW="browser-totp"
+    TOTP_REQUIRED_ACTION='["CONFIGURE_TOTP"]'
+    ;;
+  *)
+    BROWSER_FLOW="browser"
+    TOTP_REQUIRED_ACTION='[]'
+    ;;
+esac
+
 if ! command -v curl >/dev/null 2>&1; then
     echo "curl is required for Keycloak setup." >&2
     exit 1
@@ -78,6 +91,7 @@ REALM_PAYLOAD=$(cat <<EOF
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
+  "browserFlow": "$BROWSER_FLOW",
   "bruteForceProtected": true,
   "permanentLockout": false,
   "maxFailureWaitSeconds": 900,
@@ -99,7 +113,11 @@ EOF
 )
 
 if realm_exists; then
-    echo "Realm already exists, skipping creation."
+    echo "Realm already exists, updating browser flow to $BROWSER_FLOW."
+    curl -s -X PUT "$KEYCLOAK_URL/admin/realms/$REALM_NAME" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$REALM_PAYLOAD"
 else
     curl -s -X POST "$KEYCLOAK_URL/admin/realms" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -131,7 +149,7 @@ CLIENT_PAYLOAD=$(cat <<EOF
   ],
   "standardFlowEnabled": true,
   "implicitFlowEnabled": false,
-  "directAccessGrantsEnabled": true,
+  "directAccessGrantsEnabled": false,
   "serviceAccountsEnabled": false,
   "publicClient": false,
   "protocol": "openid-connect",
@@ -191,6 +209,7 @@ USER_PAYLOAD=$(cat <<EOF
       "temporary": false
     }
   ],
+  "requiredActions": $TOTP_REQUIRED_ACTION,
   "realmRoles": ["user"]
 }
 EOF

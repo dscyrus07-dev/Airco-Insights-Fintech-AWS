@@ -192,6 +192,9 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-7}
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      RETENTION_SWEEP_INTERVAL_MINUTES: ${RETENTION_SWEEP_INTERVAL_MINUTES:-60}
     volumes:
       - backend_tmp:/app/tmp
     healthcheck:
@@ -201,15 +204,24 @@ services:
       retries: 3
       start_period: 15s
     depends_on:
-      - auth-service
-      - file-service
-      - pdf-service
-      - ai-service
-      - report-service
-      - app-postgres
-      - redis
-      - rabbitmq
-      - minio
+      auth-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+      pdf-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      report-service:
+        condition: service_healthy
+      app-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   frontend:
     build:

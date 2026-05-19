@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
+RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "7"))
 
 raw_database_url = os.getenv("DATABASE_URL", "").strip()
 if not raw_database_url or "pooler.supabase.com" in raw_database_url:
@@ -43,6 +44,34 @@ def _ensure_user_file_record_batch_columns() -> None:
         statements.append(
             "ALTER TABLE user_file_records ADD COLUMN statement_label VARCHAR(255)"
         )
+    if 'retention_expires_at' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN retention_expires_at TIMESTAMP"
+        )
+    if 'deletion_requested_at' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN deletion_requested_at TIMESTAMP"
+        )
+    if 'deleted_at' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN deleted_at TIMESTAMP"
+        )
+    if 'deletion_reason' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN deletion_reason VARCHAR(255)"
+        )
+    if 'deletion_status' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN deletion_status VARCHAR(50) DEFAULT 'active'"
+        )
+    if 'backup_purge_due_at' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN backup_purge_due_at TIMESTAMP"
+        )
+    if 'backup_purge_status' not in columns:
+        statements.append(
+            "ALTER TABLE user_file_records ADD COLUMN backup_purge_status VARCHAR(50)"
+        )
 
     if not statements:
         return
@@ -67,6 +96,55 @@ def initialize_database() -> None:
                         text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS statement_label VARCHAR(255)")
                     )
                     connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS retention_expires_at TIMESTAMP")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS deletion_reason VARCHAR(255)")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS deletion_status VARCHAR(50) DEFAULT 'active'")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS backup_purge_due_at TIMESTAMP")
+                    )
+                    connection.execute(
+                        text("ALTER TABLE user_file_records ADD COLUMN IF NOT EXISTS backup_purge_status VARCHAR(50)")
+                    )
+                    connection.execute(
+                        text(
+                            "UPDATE user_file_records "
+                            f"SET retention_expires_at = created_at + INTERVAL '{RETENTION_DAYS} days' "
+                            "WHERE retention_expires_at IS NULL AND created_at IS NOT NULL"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "UPDATE user_file_records "
+                            "SET deletion_status = 'active' "
+                            "WHERE deletion_status IS NULL"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "UPDATE user_file_records "
+                            "SET backup_purge_due_at = retention_expires_at "
+                            "WHERE backup_purge_due_at IS NULL AND retention_expires_at IS NOT NULL"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "UPDATE user_file_records "
+                            "SET backup_purge_status = 'pending' "
+                            "WHERE backup_purge_status IS NULL AND deleted_at IS NULL"
+                        )
+                    )
+                    connection.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
                             "ON user_file_records (user_id, created_at)"
@@ -82,6 +160,18 @@ def initialize_database() -> None:
                         text(
                             "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
                             "ON user_file_records (user_id, batch_id, created_at)"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_user_file_records_retention_expires_at "
+                            "ON user_file_records (retention_expires_at)"
+                        )
+                    )
+                    connection.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_user_file_records_deletion_status "
+                            "ON user_file_records (deletion_status)"
                         )
                     )
                     connection.commit()
@@ -106,6 +196,34 @@ def initialize_database() -> None:
     with engine.begin() as connection:
         connection.execute(
             text(
+                "UPDATE user_file_records "
+                f"SET retention_expires_at = datetime(created_at, '+{RETENTION_DAYS} days') "
+                "WHERE retention_expires_at IS NULL AND created_at IS NOT NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE user_file_records "
+                "SET deletion_status = 'active' "
+                "WHERE deletion_status IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE user_file_records "
+                "SET backup_purge_due_at = retention_expires_at "
+                "WHERE backup_purge_due_at IS NULL AND retention_expires_at IS NOT NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE user_file_records "
+                "SET backup_purge_status = 'pending' "
+                "WHERE backup_purge_status IS NULL AND deleted_at IS NULL"
+            )
+        )
+        connection.execute(
+            text(
                 "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_created_at "
                 "ON user_file_records (user_id, created_at)"
             )
@@ -120,6 +238,18 @@ def initialize_database() -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_user_file_records_user_batch_created_at "
                 "ON user_file_records (user_id, batch_id, created_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_file_records_retention_expires_at "
+                "ON user_file_records (retention_expires_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_user_file_records_deletion_status "
+                "ON user_file_records (deletion_status)"
             )
         )
     

@@ -4,7 +4,7 @@ import Image from 'next/image'
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '../contexts/AuthContext'
-import { storeSessionTokens, getValidSessionAccessToken } from '../lib/sessionToken'
+import { getValidSessionAccessToken } from '../lib/sessionToken'
 import Header from './components/Header'
 import StepForm from './components/StepForm'
 import UploadStep from './components/UploadStep'
@@ -16,7 +16,6 @@ import {
   Clock3,
   Download,
   Edit3,
-  Eye,
   FileSpreadsheet,
   FileText,
   RefreshCw,
@@ -41,12 +40,8 @@ Thank you.`
 
 function LoginScreen() {
   const router = useRouter()
-  const { isLoading } = useAuth()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
+  const { isLoading, login: startLogin } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
 
   const mailtoHref = useMemo(() => {
     const subject = encodeURIComponent('Airco Insights Login Credentials')
@@ -72,32 +67,11 @@ function LoginScreen() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !password) {
-      setLoginError('Please enter your email and password.')
-      return
-    }
-    setLoginError('')
     setIsSubmitting(true)
     try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => null)
-        setLoginError(errorData?.message || errorData?.detail || 'Invalid email or password. Please try again.')
-        return
-      }
-
-      const data = await resp.json()
-      console.log('Login response data:', data)
-      storeSessionTokens(data.access_token, data.refresh_token)
-      console.log('Tokens stored, redirecting to dashboard')
-      window.location.href = '/dashboard'
+      await startLogin()
     } catch {
-      setLoginError('Login failed. Please check your connection and try again.')
+      // The browser redirect should normally take over immediately.
     } finally {
       setIsSubmitting(false)
     }
@@ -177,63 +151,21 @@ function LoginScreen() {
                       Airco Insights
                     </p>
                     <p className="mt-1 text-center text-lg font-medium text-black">
-                      Sign In to Your Account
+                      Sign In with Keycloak
                     </p>
                   </div>
 
                   <form onSubmit={handleLogin} className="space-y-4">
-                    <div>
-                      <label htmlFor="email" className="block text-sm font-medium text-neutral-700 mb-1">
-                        Email
-                      </label>
-                      <input
-                        id="email"
-                        type="email"
-                        autoComplete="email"
-                        required
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 text-sm text-black placeholder-neutral-400 outline-none focus:border-black focus:ring-1 focus:ring-black transition"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="password" className="block text-sm font-medium text-neutral-700 mb-1">
-                        Password
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          autoComplete="current-password"
-                          required
-                          value={password}
-                          onChange={e => setPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full rounded-lg border border-black/10 bg-white px-4 py-3 pr-10 text-sm text-black placeholder-neutral-400 outline-none focus:border-black focus:ring-1 focus:ring-black transition"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(v => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700"
-                          tabIndex={-1}
-                        >
-                          {showPassword ? <Eye size={16} /> : <Eye size={16} className="opacity-50" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {loginError && (
-                      <p className="text-xs text-red-600 font-medium">{loginError}</p>
-                    )}
+                    <p className="rounded-lg border border-black/10 bg-neutral-50 px-4 py-3 text-sm leading-6 text-neutral-600">
+                      You will be redirected to Keycloak to enter your password and TOTP code.
+                    </p>
 
                     <button
                       type="submit"
                       disabled={isSubmitting || isLoading}
                       className="mt-2 flex w-full items-center justify-center rounded-lg bg-black px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isSubmitting ? 'Signing in...' : 'Sign In'}
+                      {isSubmitting ? 'Redirecting...' : 'Continue to Keycloak'}
                     </button>
                   </form>
 

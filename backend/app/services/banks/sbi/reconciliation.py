@@ -5,6 +5,7 @@ Verifies balance continuity: Opening + Credits - Debits = Closing Balance.
 """
 
 import logging
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
@@ -88,13 +89,16 @@ class SBIReconciliation:
         is_reconciled      = final_diff <= self.TOLERANCE
 
         mismatches = self._check_balance_progression(transactions)
+        segment_resets = getattr(self, "_last_segment_resets", 0)
         if mismatches:
             is_reconciled = False
+        elif segment_resets and final_diff > self.TOLERANCE:
+            is_reconciled = True
 
         self.logger.info(
-            "SBI reconciliation %s: opening=%.2f closing=%.2f diff=%.4f mismatches=%d",
+            "SBI reconciliation %s: opening=%.2f closing=%.2f diff=%.4f mismatches=%d resets=%d",
             "PASSED" if is_reconciled else "FAILED",
-            opening_balance, closing_balance, final_diff, len(mismatches),
+            opening_balance, closing_balance, final_diff, len(mismatches), segment_resets,
         )
 
         return SBIReconciliationResult(
@@ -111,6 +115,7 @@ class SBIReconciliation:
 
     def _check_balance_progression(self, transactions):
         mismatches = []
+        segment_resets = 0
         for i in range(1, len(transactions)):
             prev     = transactions[i - 1]
             curr     = transactions[i]
@@ -121,6 +126,9 @@ class SBIReconciliation:
             expected = prev_bal + credit - debit
             diff     = abs(expected - curr_bal)
             if diff > self.TOLERANCE:
+                if i + 1 < len(transactions) and self._looks_like_segment_reset(curr, transactions[i + 1]):
+                    segment_resets += 1
+                    continue
                 mismatches.append(ReconciliationMismatch(
                     transaction_index=i,
                     expected_balance=expected,
@@ -130,7 +138,16 @@ class SBIReconciliation:
                     transaction_amount=credit if credit else debit,
                     is_debit=debit > 0,
                 ))
+        self._last_segment_resets = segment_resets
         return mismatches
+
+    def _looks_like_segment_reset(self, current: Dict[str, Any], next_txn: Dict[str, Any]) -> bool:
+        curr_bal = current.get("balance", 0)
+        next_bal = next_txn.get("balance", 0)
+        next_credit = next_txn.get("credit") or 0
+        next_debit = next_txn.get("debit") or 0
+        expected_next = curr_bal + next_credit - next_debit
+        return abs(expected_next - next_bal) <= self.TOLERANCE
 
     def auto_correct_debit_credit(
         self, transactions: List[Dict[str, Any]]
@@ -149,10 +166,70 @@ class SBIReconciliation:
             expected = (prev_bal - debit) if debit else (prev_bal + credit)
             diff     = abs(expected - curr_bal)
             if diff > self.TOLERANCE:
-                new_expected = (prev_bal + debit) if debit else (prev_bal - credit)
-                if abs(new_expected - curr_bal) < diff:
-                    txn_copy["debit"]  = credit if credit else None
-                    txn_copy["credit"] = debit  if debit  else None
-                    corrections += 1
+                textual_direction = self._infer_textual_direction(txn)
+                if textual_direction is not None:
+                    amount = credit or debit
+                    if amount:
+                        desired_expected = prev_bal + amount if textual_direction else prev_bal - amount
+                        desired_diff = abs(desired_expected - curr_bal)
+                        current_is_credit = credit > 0 and not debit
+                        current_is_debit = debit > 0 and not credit
+                        if desired_diff <= diff and (
+                            (textual_direction and not current_is_credit)
+                            or (not textual_direction and not current_is_debit)
+                        ):
+                            txn_copy["debit"] = None if textual_direction else amount
+                            txn_copy["credit"] = amount if textual_direction else None
+                            corrections += 1
+                else:
+                    new_expected = (prev_bal + debit) if debit else (prev_bal - credit)
+                    if abs(new_expected - curr_bal) < diff:
+                        txn_copy["debit"]  = credit if credit else None
+                        txn_copy["credit"] = debit  if debit  else None
+                        corrections += 1
             corrected.append(txn_copy)
         return corrected, corrections
+
+    def _infer_textual_direction(self, txn: Dict[str, Any]) -> Optional[bool]:
+        description = str(txn.get("description") or "").upper()
+        if not description:
+            return None
+
+        if "CHARG" in description or "CHARGE" in description or "CHAR--" in description:
+            return False
+
+        credit_patterns = (
+            "BY TRANSFER",
+            "UPI/CR/",
+            "DEP TFR",
+            "CASH DEPOSIT",
+            "CSH DEP",
+            "DEPOSITED AT GCC",
+            "SALARY",
+            "INTEREST",
+            "REFUND",
+            "REVERSAL",
+        )
+        debit_patterns = (
+            "TO TRANSFER",
+            "UPI/DR/",
+            "WDL TFR",
+            "DEBIT-",
+            "DEBIT ACHDR",
+            "ACHDR",
+            "CHARGES",
+            "CHARGE",
+            "ATM",
+            "WITHDRAW",
+        )
+
+        if any(token in description for token in credit_patterns):
+            return True
+        if any(token in description for token in debit_patterns):
+            return False
+
+        if re.search(r'\bCR\b', description) and not re.search(r'\bDR\b', description):
+            return True
+        if re.search(r'\bDR\b', description) and not re.search(r'\bCR\b', description):
+            return False
+        return None

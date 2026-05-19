@@ -2,11 +2,24 @@ import os
 import uuid
 import logging
 import tempfile
+import time
 from pathlib import Path
+from typing import Optional
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _is_transient_minio_error(exc: Exception) -> bool:
+    transient_names = {
+        "ConnectionResetError",
+        "ConnectionClosedError",
+        "EndpointConnectionError",
+        "ReadTimeoutError",
+        "ConnectTimeoutError",
+    }
+    return isinstance(exc, (ConnectionResetError, TimeoutError)) or exc.__class__.__name__ in transient_names
 
 
 def get_temp_dir() -> str:
@@ -85,13 +98,113 @@ def upload_to_minio(local_path: str, bucket: str, object_key: str = None) -> boo
             else "application/pdf"
         )
 
-        client.upload_file(
-            local_path, bucket, object_key,
-            ExtraArgs={"ContentType": content_type},
-        )
-        logger.info("MinIO upload OK: %s → %s/%s", local_path, bucket, object_key)
-        return True
+        for attempt in range(3):
+            try:
+                client.upload_file(
+                    local_path, bucket, object_key,
+                    ExtraArgs={"ContentType": content_type},
+                )
+                logger.info("MinIO upload OK: %s → %s/%s", local_path, bucket, object_key)
+                return True
+            except Exception as exc:
+                if attempt < 2 and _is_transient_minio_error(exc):
+                    logger.warning(
+                        "MinIO upload transient failure; retrying",
+                        bucket=bucket,
+                        object_key=object_key,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise
 
     except Exception as e:
         logger.warning("MinIO upload failed (non-fatal): %s", str(e))
         return False
+
+
+def delete_from_minio(bucket: str, object_key: str) -> bool:
+    """
+    Delete an object from a MinIO bucket.
+    Returns True on success, False on any failure (non-blocking).
+    """
+    if not bucket or not object_key:
+        return False
+
+    try:
+        import boto3
+        from botocore.client import Config as BotoConfig
+
+        endpoint = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+        access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+        secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=BotoConfig(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+
+        client.delete_object(Bucket=bucket, Key=object_key)
+        logger.info("MinIO delete OK: %s/%s", bucket, object_key)
+        return True
+
+    except Exception as e:
+        logger.warning("MinIO delete failed (non-fatal): %s", str(e))
+        return False
+
+
+def download_from_minio(bucket: str, object_key: str, local_path: str = None) -> Optional[str]:
+    """
+    Download an object from a MinIO bucket to a local file.
+    Returns the local file path on success, None on failure.
+    """
+    if not bucket or not object_key:
+        return None
+
+    try:
+        import boto3
+        from botocore.client import Config as BotoConfig
+
+        endpoint = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+        access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+        secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=BotoConfig(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+
+        if local_path is None:
+            temp_dir = get_temp_dir()
+            local_path = os.path.join(temp_dir, os.path.basename(object_key))
+
+        for attempt in range(3):
+            try:
+                client.download_file(bucket, object_key, local_path)
+                logger.info("MinIO download OK: %s/%s → %s", bucket, object_key, local_path)
+                return local_path
+            except Exception as exc:
+                if attempt < 2 and _is_transient_minio_error(exc):
+                    logger.warning(
+                        "MinIO download transient failure; retrying",
+                        bucket=bucket,
+                        object_key=object_key,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise
+
+    except Exception as e:
+        logger.warning("MinIO download failed: %s", str(e))
+        return None
