@@ -56,6 +56,8 @@ services:
     ports: []
     expose:
       - "5432"
+    volumes:
+      - app_postgres_data:/var/lib/postgresql/data
 
   backend:
     ports: []
@@ -119,6 +121,8 @@ services:
     ports: []
     expose:
       - "5432"
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
 
   keycloak:
     ports: []
@@ -146,6 +150,8 @@ services:
     ports: []
     expose:
       - "6379"
+    volumes:
+      - redis_data:/data
 
   rabbitmq:
     ports: []
@@ -155,6 +161,8 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
 
   minio:
     ports:
@@ -167,8 +175,9 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-s3-access}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-s3-secret}
       MINIO_SERVER_URL: https://${MINIO_PUBLIC_DOMAIN:-minio.theairco.ai}
-      # MinIO requires a trailing slash when the console is served from a subpath.
       MINIO_BROWSER_REDIRECT_URL: https://${MINIO_PUBLIC_DOMAIN:-minio.theairco.ai}/minio/ui/
+    volumes:
+      - minio_data:/data
 
   nginx:
     build:
@@ -205,7 +214,12 @@ services:
 volumes:
   backend_tmp:
   redis_data:
+    driver: local
   rabbitmq_data:
+    driver: local
   minio_data:
+    driver: local
   app_postgres_data:
+    driver: local
   keycloak_postgres_data:
+    driver: local
