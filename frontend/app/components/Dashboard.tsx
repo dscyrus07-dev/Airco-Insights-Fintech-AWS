@@ -356,15 +356,43 @@ export default function Dashboard() {
   }, [activeBatchFile, apiKey, batchQueue, currentBatchIndex, loadProfileHistory, mode, submitBatchItem])
 
   const handleProcessingError = useCallback((message: string) => {
+    // Mark current file as failed but continue with batch
     setError(message)
     setJobId(null)
-    setIsProcessing(false)
     setUploadedStatements(prev =>
       prev.map((f) => (f.status === 'Processing' ? { ...f, status: 'Failed' } : f))
     )
-    setStep(3)
+    
+    // Add failed result to batch results for tracking
+    if (activeBatchFile) {
+      const failedResult: ProcessingResult = {
+        status: 'error',
+        mode: mode || 'free',
+        excel_url: '',
+        pdf_url: '',
+      }
+      setBatchResults((prev) => [...prev, {
+        id: activeBatchFile.id,
+        bankName: activeBatchFile.bankName,
+        fileName: activeBatchFile.file.name,
+        result: failedResult,
+      }])
+    }
+    
+    // Continue with next file in batch
+    const nextIndex = currentBatchIndex + 1
+    if (nextIndex < batchQueue.length) {
+      setCurrentBatchIndex(nextIndex)
+      void submitBatchItem(batchQueue[nextIndex], mode, apiKey || undefined)
+      return
+    }
+    
+    // All files processed (some may have failed)
+    setIsProcessing(false)
+    setActiveBatchFile(null)
+    setStep(5) // Go to results page to show partial results
     loadProfileHistory()
-  }, [loadProfileHistory])
+  }, [activeBatchFile, apiKey, batchQueue, currentBatchIndex, loadProfileHistory, mode, submitBatchItem])
 
   const handleModeSelect = async (selectedMode: ProcessingMode, key?: string) => {
     if (batchQueue.length === 0) return
@@ -511,14 +539,24 @@ export default function Dashboard() {
           </div>
         </div>
         {isUpload ? (
-          <div
-            className={`h-2 w-2 rounded-full ${
-              (item as UserUploadHistoryItem).status === 'Processed' ? 'bg-green-500' :
-              (item as UserUploadHistoryItem).status === 'Processing' ? 'bg-yellow-500' :
-              (item as UserUploadHistoryItem).status === 'Failed' ? 'bg-red-500' :
-              'bg-neutral-300'
-            }`}
-          />
+          <div className="flex items-center gap-2">
+            <div
+              className={`h-3 w-3 rounded-full ring-2 ring-offset-1 ${
+                (item as UserUploadHistoryItem).status === 'Processed' ? 'bg-green-500 ring-green-200' :
+                (item as UserUploadHistoryItem).status === 'Processing' ? 'bg-amber-500 ring-amber-200 animate-pulse' :
+                (item as UserUploadHistoryItem).status === 'Failed' ? 'bg-red-500 ring-red-200' :
+                'bg-neutral-300 ring-neutral-200'
+              }`}
+            />
+            <span className={`text-xs font-medium ${
+              (item as UserUploadHistoryItem).status === 'Processed' ? 'text-green-700' :
+              (item as UserUploadHistoryItem).status === 'Processing' ? 'text-amber-700' :
+              (item as UserUploadHistoryItem).status === 'Failed' ? 'text-red-700' :
+              'text-neutral-500'
+            }`}>
+              {(item as UserUploadHistoryItem).status}
+            </span>
+          </div>
         ) : (
           <a
             href={`/api/jobs/${itemId}/download`}
@@ -706,7 +744,7 @@ export default function Dashboard() {
             onClick={() => setIsProfilePanelOpen(false)}
           />
 
-          <div className="fixed top-0 right-0 h-full w-[420px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out translate-x-0">
+          <div className="fixed top-0 right-0 h-full w-[520px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out translate-x-0">
             <div className="h-full overflow-y-auto">
               <div className="sticky top-0 bg-white border-b border-neutral-100 p-4 z-10">
                 <div className="flex items-center justify-between">

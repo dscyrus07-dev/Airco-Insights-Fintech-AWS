@@ -5,7 +5,7 @@ import { ProcessingResult, SheetPreview } from '@/types'
 import CollapsiblePreview from './CollapsiblePreview'
 import DownloadButtons from './DownloadButtons'
 import FeedbackSection from './FeedbackSection'
-import { CheckCircle2, Eye, FileSpreadsheet } from 'lucide-react'
+import { CheckCircle2, Eye, FileSpreadsheet, Download, Archive } from 'lucide-react'
 import SpreadsheetEditor from './spreadsheet/SpreadsheetEditor'
 import { SpreadsheetProvider } from './spreadsheet/SpreadsheetContext'
 
@@ -308,6 +308,49 @@ export default function ResultStep({ result, batchResults = [] }: ResultStepProp
             apiKey={activeResult.mode === 'hybrid' ? 'requires-auth-key-passthrough-if-needed' : ''} 
           />
         </SpreadsheetProvider>
+      )}
+
+      {/* Download All button for batch results */}
+      {batchResults.length > 1 && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Archive className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-900">
+                {batchResults.filter(r => r.result.status === 'success').length} report(s) ready
+              </span>
+            </div>
+            <button
+              onClick={async () => {
+                // Download all Excel files sequentially
+                const successfulResults = batchResults.filter(r => r.result.status === 'success' && r.result.excel_url)
+                for (let i = 0; i < successfulResults.length; i++) {
+                  const item = successfulResults[i]
+                  const link = document.createElement('a')
+                  link.href = item.result.excel_url
+                  link.download = `${item.bankName}_${item.fileName.replace(/\.pdf$/i, '')}_Report.xlsx`
+                  document.body.appendChild(link)
+                  link.click()
+                  document.body.removeChild(link)
+                  // Small delay between downloads
+                  if (i < successfulResults.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                  }
+                }
+              }}
+              disabled={batchResults.filter(r => r.result.status === 'success' && r.result.excel_url).length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="h-4 w-4" />
+              Download All
+            </button>
+          </div>
+          {batchResults.some(r => r.result.status === 'error') && (
+            <p className="text-xs text-amber-600 mt-2">
+              Note: {batchResults.filter(r => r.result.status === 'error').length} file(s) failed and won't be downloaded.
+            </p>
+          )}
+        </div>
       )}
 
       <DownloadButtons
