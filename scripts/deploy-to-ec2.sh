@@ -118,7 +118,7 @@ RABBITMQ_DEFAULT_USER=airco_rmq
 RABBITMQ_DEFAULT_PASS=${RMQ_PASS}
 REDIS_URL=redis://redis:6379
 S3_ENDPOINT=http://minio:9000
-S3_REGION=us-east-1
+S3_REGION=ap-south-1
 
 # AI provider keys (must be set manually)
 GROQ_API_KEY=REPLACE_ME
@@ -210,9 +210,9 @@ if [ "$HEALTH_STATUS" == "200" ]; then
     echo -e "${GREEN}Health Check: https://test.theairco.ai/health${NC}"
     echo ""
     echo -e "${YELLOW}Useful commands:${NC}"
-    echo -e "  View logs: ${NC}docker-compose logs -f"
-    echo -e "  Stop services: ${NC}docker-compose down"
-    echo -e "  Restart: ${NC}docker-compose restart"
+    echo -e "  View logs: ${NC}docker compose logs -f"
+    echo -e "  Stop services: ${NC}docker compose down"
+    echo -e "  Restart: ${NC}docker compose restart"
 else
     echo -e "${YELLOW}Services starting... checking again in 30 seconds...${NC}"
     sleep 30
@@ -223,7 +223,7 @@ else
         echo -e "${GREEN}Website: https://test.theairco.ai${NC}"
     else
         echo -e "${RED}Health check failed. Checking logs...${NC}"
-        docker-compose logs --tail=50 backend
+        docker compose logs --tail=50 backend
         exit 1
     fi
 fi

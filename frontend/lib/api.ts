@@ -1,4 +1,4 @@
-import { AccountType, ProcessingResult, ProcessingMode, UserDetails } from '@/types'
+import { ProcessingResult, ProcessingMode, StatementTypeSelection, UserDetails } from '@/types'
 
 const API_URL = '/api'
 
@@ -43,7 +43,7 @@ export async function uploadStatement(
   batchId?: string,
   statementLabel?: string,
   bankName?: string,
-  accountType?: AccountType | '',
+  accountType?: StatementTypeSelection,
 ): Promise<ProcessingResult> {
   const formData = new FormData()
   formData.append('file', file)

@@ -63,14 +63,16 @@ class KarnatakaProcessingResult(GenericProcessingResult):
 
 
 class KarnatakaProcessor:
-    def __init__(self, strict_mode: bool = True, enable_ai: bool = False, api_key: Optional[str] = None):
+    def __init__(self, strict_mode: bool = True, enable_ai: bool = False, api_key: Optional[str] = None, audit_service=None, job_id: Optional[str] = None):
         self.strict_mode = strict_mode
         self.enable_ai = enable_ai
         self.api_key = api_key
+        self.audit_service = audit_service
+        self.job_id = job_id
 
         self.pdf_validator = PDFIntegrityValidator()
         self.structure_validator = KarnatakaStructureValidator()
-        self.parser = KarnatakaParser()
+        self.parser = KarnatakaParser(audit_service=audit_service, job_id=job_id)
         self.transaction_validator = KarnatakaTransactionValidator(strict_mode=False)
         self.reconciliation = KarnatakaReconciliation(strict_mode=False)
         self.rule_engine = KarnatakaRuleEngine()
@@ -220,6 +222,7 @@ class KarnatakaProcessor:
                     lambda: self.formula_excel_engine.generate(formula_transactions, metadata, excel_path),
                     metrics,
                 )
+
             except Exception:
                 self.logger.warning("Formula Excel generation failed for Karnataka, falling back to legacy generator", exc_info=True)
                 excel_user_info = dict(user_info or {})
@@ -233,6 +236,31 @@ class KarnatakaProcessor:
                 )
 
             metrics.total_time_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
+
+            if self.audit_service and self.job_id:
+                try:
+                    self.audit_service.finalize_job_audit(
+                        self.job_id,
+                        hygiene_result=getattr(self.parser, '_hygiene_result', None),
+                        parser_metrics_collected=getattr(self.parser, '_collected_parser_metrics', []),
+                        raw_transactions=all_transactions,
+                        excel_path=excel_path,
+                        sheet_count=11,
+                        template_used='KARNATAKA_FREE',
+                        generation_time_ms=int(metrics.step_timings.get('excel_generation', 0)),
+                        transaction_count=len(all_transactions),
+                        classified_transactions=all_transactions,
+                        statement_header={
+                            "userid": (user_info or {}).get("user_id"),
+                            "filename": (file_path or "").replace("\\", "/").rsplit("/", 1)[-1],
+                            "bankname": getattr(self.parser, "BANK_NAME", "Karnataka"),
+                            "accountno": (user_info or {}).get("account_number") or (user_info or {}).get("account_no"),
+                            "formatidentify": getattr(getattr(self.parser, "_hygiene_result", None), "format_id", None),
+                        },
+                    )
+                except Exception as _ae:
+                    self.logger.error('finalize_job_audit failed (non-fatal): %s', _ae, exc_info=True)
+
             return KarnatakaProcessingResult(
                 status="success",
                 excel_path=excel_path,

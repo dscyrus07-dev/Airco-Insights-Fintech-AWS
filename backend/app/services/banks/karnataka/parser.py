@@ -10,8 +10,19 @@ import pdfplumber
 
 from app.services.banks._shared.generic_bank import GenericParseError
 
+# Import shared components for 3-level fallback
+from .._shared.base_parser import BaseBankParser
+from .._shared.dynamic_column_detector import DynamicColumnDetector
+from .._shared.unsupported_format_queue import UnsupportedFormatQueue
+from .._shared.parser_metrics import ParserMetrics
 
-KarnatakaParseError = GenericParseError
+
+class KarnatakaParseError(Exception):
+    """Raised when Karnataka Bank parsing fails."""
+    def __init__(self, message: str, error_code: str, details: dict = None):
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(message)
 
 
 @dataclass
@@ -45,13 +56,94 @@ class KarnatakaParseResult:
     total_debits: float = 0.0
 
 
-class KarnatakaParser:
+class KarnatakaParser(BaseBankParser):
+    BANK_NAME = "Karnataka"
+
     ROW_RE = re.compile(r"^(?P<date>\d{2}-\d{2}-\d{4})\s+(?P<rest>.+?)\s+(?P<amount>[\d,]+\.\d{2})\s+(?P<balance>[\d,]+\.\d{2})$")
 
-    def __init__(self):
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    def __init__(self, audit_service=None, job_id=None):
+        super().__init__(audit_service=audit_service, job_id=job_id)
+        self.bank_name = self.BANK_NAME
+        self._hygiene_result = None
+        self._collected_parser_metrics = []
+        # Initialize 3-level fallback components
+        self.dynamic_detector = DynamicColumnDetector()
+        self.unsupported_queue = UnsupportedFormatQueue()
+        self.metrics = ParserMetrics()
 
     def parse(self, file_path: str, text_content: str = "") -> KarnatakaParseResult:
+        """
+        MAIN PARSE METHOD - Now with 3-level fallback strategy.
+        
+        Flow:
+        1. Try existing hardcoded parser (text-based)
+        2. If fails, try dynamic column detection
+        3. If fails, add to unsupported queue
+        """
+        start_time = datetime.now()
+
+        try:
+            from pathlib import Path as _Path
+            from app.services.banks._shared.hygiene_check import HygieneCheck as _HC
+            _hc = _HC(pdf_directory=_Path(file_path).parent)
+            _hr = _hc.validate_single_pdf(_Path(file_path))
+            self._hygiene_result = _hr
+            _hc.log_hygiene_check_result(_hr)
+        except Exception as _he:
+            self.logger.warning(f"Hygiene check failed (non-fatal): {_he}")
+
+        try:
+            # Level 1: Try existing Karnataka parser logic
+            self.logger.info("Level 1: Trying existing Karnataka hardcoded parser")
+            result = self._parse_existing_hardcoded(file_path, text_content)
+            
+            if self._is_valid_result(result):
+                # Success with hardcoded
+                self._record_metrics("hardcoded", True, result.total_count, start_time)
+                self._write_parser_metric("hardcoded", True, result.total_count, start_time)
+                self.logger.info(f"Level 1 success: {result.total_count} transactions via hardcoded ({result.parse_method})")
+                return result
+            
+            # Level 2: Dynamic fallback
+            self.logger.warning("Level 1 failed for Karnataka, trying dynamic fallback")
+            self._write_parser_metric("hardcoded", False, 0, start_time)
+            result = self._parse_dynamic(file_path)
+            
+            if self._is_valid_result(result):
+                # Success with dynamic
+                self._record_metrics("dynamic", True, result.total_count, start_time)
+                self._write_parser_metric("dynamic", True, result.total_count, start_time)
+                self.logger.warning(f"Level 2 success: {result.total_count} transactions via dynamic")
+                return result
+            
+            # Level 3: Unsupported format
+            self.logger.error("Level 2 failed for Karnataka, adding to unsupported queue")
+            self._add_to_unsupported_queue(file_path, "BOTH_PARSERS_FAILED")
+            self._record_metrics("unsupported", False, 0, start_time)
+            self._write_parser_metric("unsupported", False, 0, start_time)
+            
+            return self._create_empty_result("Unsupported Karnataka statement format")
+            
+        except Exception as e:
+            self.logger.error(f"Parser error for Karnataka: {e}", exc_info=True)
+            self._add_to_unsupported_queue(file_path, f"PARSER_ERROR: {str(e)}")
+            self._record_metrics("error", False, 0, start_time)
+            self._write_parser_metric("error", False, 0, start_time)
+            return self._create_empty_result(f"Parser error: {str(e)}")
+
+    def _parse_existing_hardcoded(self, file_path: str, text_content: str = "") -> KarnatakaParseResult:
+        """
+        Call the original Karnataka parser logic.
+        This is the existing parse method without fallback.
+        """
+        if self._is_image_only_pdf(file_path):
+            raise KarnatakaParseError(
+                "This PDF appears to be a scanned image and cannot be processed. "
+                "Please upload a text-based PDF downloaded directly from Karnataka Bank's internet banking portal.",
+                error_code="SCANNED_PDF",
+                details={"file": file_path}
+            )
+
         transactions: List[KarnatakaTransaction] = []
         opening_balance: Optional[float] = None
         closing_balance: Optional[float] = None
@@ -86,6 +178,156 @@ class KarnatakaParser:
             closing_balance=closing_balance,
             total_credits=total_credits,
             total_debits=total_debits,
+        )
+
+    def _parse_dynamic(self, file_path: str) -> KarnatakaParseResult:
+        """
+        Dynamic column detection fallback.
+        Uses shared DynamicColumnDetector.
+        """
+        try:
+            dynamic_result = self.dynamic_detector.parse(file_path, bank_hint=self.bank_name)
+            
+            if dynamic_result and dynamic_result.transactions:
+                # Convert dynamic result to Karnataka format
+                return self._convert_dynamic_result(dynamic_result)
+            
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Dynamic parser failed for Karnataka: {e}")
+            return None
+
+    def _convert_dynamic_result(self, dynamic_result) -> KarnatakaParseResult:
+        """
+        Convert DynamicParseResult to KarnatakaParseResult format.
+        """
+        # Convert dynamic transactions to KarnatakaTransaction format
+        karnataka_transactions = []
+        for txn in dynamic_result.transactions:
+            karnataka_txn = KarnatakaTransaction(
+                date=txn.get("date", ""),
+                description=txn.get("description", ""),
+                ref_no=txn.get("ref_no", ""),
+                debit=self._parse_amount(txn.get("debit")),
+                credit=self._parse_amount(txn.get("credit")),
+                balance=self._parse_amount(txn.get("balance"))
+            )
+            karnataka_transactions.append(karnataka_txn)
+        
+        # Calculate totals
+        total_credits = sum(t.credit or 0 for t in karnataka_transactions)
+        total_debits = sum(t.debit or 0 for t in karnataka_transactions)
+        opening_balance = karnataka_transactions[0].balance if karnataka_transactions else None
+        closing_balance = karnataka_transactions[-1].balance if karnataka_transactions else None
+        
+        return KarnatakaParseResult(
+            transactions=karnataka_transactions,
+            total_count=len(karnataka_transactions),
+            parse_method="dynamic",
+            opening_balance=opening_balance,
+            closing_balance=closing_balance,
+            total_credits=total_credits,
+            total_debits=total_debits
+        )
+
+    def _is_valid_result(self, result: KarnatakaParseResult) -> bool:
+        """
+        Validation for Karnataka parsing results.
+        """
+        if not result:
+            return False
+        
+        # Basic validation
+        if result.total_count <= 0:
+            return False
+        
+        if not result.transactions:
+            return False
+        
+        # Karnataka-specific validation - minimum threshold
+        if result.total_count < 3:
+            return False
+        
+        # Validate first transaction has required fields
+        first_txn = result.transactions[0] if result.transactions else None
+        if not first_txn:
+            return False
+        
+        # Check for essential fields
+        if not first_txn.date:
+            return False
+        
+        if not first_txn.description:
+            return False
+        
+        # Check for amount field (debit or credit)
+        if not (first_txn.debit or first_txn.credit):
+            return False
+        
+        return True
+
+    def _add_to_unsupported_queue(self, file_path: str, reason: str):
+        """Add failed PDF to unsupported format queue."""
+        try:
+            entry = {
+                "bank": self.bank_name,
+                "file": file_path,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat(),
+                "attempts": []  # Could be enhanced to track attempts
+            }
+            
+            self.unsupported_queue.add(entry)
+            self.logger.warning(f"Added to unsupported queue: Karnataka - {reason}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add to unsupported queue: {e}")
+
+    def _write_parser_metric(self, method: str, success: bool, transaction_count: int, start_time: datetime = None):
+        """Collect parser metric in memory for finalize_job_audit."""
+        try:
+            elapsed_ms = int((datetime.now() - start_time).total_seconds() * 1000) if start_time else 0
+            self._collected_parser_metrics.append({
+                'parser_type': method,
+                'parser_name': f'KARNATAKA_{method}',
+                'bank_name': self.bank_name,
+                'execution_time_ms': elapsed_ms,
+                'transactions_extracted': transaction_count,
+                'confidence_score': 95.0 if success else 0.0,
+                'status': 'SUCCESS' if success else 'FAILED',
+            })
+        except Exception as e:
+            self.logger.warning(f"Failed to collect parser metric (non-fatal): {e}")
+
+    def _record_metrics(self, method: str, success: bool, transaction_count: int, start_time: datetime = None):
+        """Record parsing metrics."""
+        try:
+            processing_time = (datetime.now() - start_time).total_seconds() * 1000 if start_time is not None else 0
+            
+            self.metrics.record_attempt(
+                bank=self.bank_name,
+                method=method,
+                success=success,
+                transaction_count=transaction_count,
+                processing_time_ms=int(processing_time)
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to record metrics: {e}")
+
+    def _create_empty_result(self, error_message: str) -> KarnatakaParseResult:
+        """
+        Create empty result with error message.
+        """
+        return KarnatakaParseResult(
+            transactions=[],
+            total_count=0,
+            parse_method="failed",
+            opening_balance=None,
+            closing_balance=None,
+            total_credits=0.0,
+            total_debits=0.0
         )
 
     def _parse_lines(self, lines: List[str], prev_balance: Optional[float]) -> Tuple[List[KarnatakaTransaction], Optional[float], Optional[float]]:
@@ -191,6 +433,19 @@ class KarnatakaParser:
             "PHONE ", "EMAIL ID", "VPA", "DATE PARTICULARS INSTRUMENT NO WITHDRAWALS DEPOSITS BALANCE", "PAGE ",
         )
         return any(token in upper for token in skip_tokens)
+
+    def _is_image_only_pdf(self, file_path: str) -> bool:
+        """Return True if the PDF has no extractable text (scanned image)."""
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text() or ""
+                    if len(text.strip()) > 20:
+                        return False
+            return True
+        except Exception:
+            return False
 
     def _parse_amount(self, value: str) -> Optional[float]:
         try:

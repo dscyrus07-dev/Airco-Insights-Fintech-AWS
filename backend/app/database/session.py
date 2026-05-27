@@ -9,10 +9,9 @@ logger = get_logger(__name__)
 RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "7"))
 
 raw_database_url = os.getenv("DATABASE_URL", "").strip()
-if not raw_database_url or "pooler.supabase.com" in raw_database_url:
-    DATABASE_URL = "postgresql://airco:airco123@app-postgres:5432/airco_app"
-else:
-    DATABASE_URL = raw_database_url
+if not raw_database_url:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+DATABASE_URL = raw_database_url
 
 engine_kwargs = {"pool_pre_ping": True}
 if DATABASE_URL.startswith("sqlite"):

@@ -1,5 +1,25 @@
 export type AccountType = 'salaried' | 'business'
 
+export type StatementTypeSelection = 'auto_detect' | AccountType | ''
+
+export interface StatementProfile {
+  user_selected_type: 'AUTO' | 'SALARIED' | 'BUSINESS' | 'MIXED'
+  detected_type: 'SALARIED' | 'BUSINESS' | 'MIXED'
+  salary_score: number
+  business_score: number
+  confidence: number
+  validation_status: 'auto_detected' | 'matches_selected_type' | 'possible_mismatch' | 'no_transactions'
+  validation_message: string
+  salary_months: number
+  salary_employer?: string | null
+  monthly_salary_avg: number
+  unique_credit_parties: number
+  upi_collection_amount: number
+  salary_detected: boolean
+  business_detected: boolean
+  mixed_detected: boolean
+}
+
 export type BankName =
   | 'HDFC Bank'
   | 'ICICI Bank'
@@ -25,14 +45,30 @@ export interface UserDetails {
   selectedBanks: BankName[]
 }
 
+export interface StatementMetadata {
+  has_salary: boolean
+  salary_count: number
+  salary_amount: number
+  has_loan_repayment: boolean
+  loan_repayment_count: number
+  loan_repayment_amount: number
+  total_credits: number
+  total_credits_amount: number
+  total_debits: number
+  total_debits_amount: number
+  statement_profile?: StatementProfile
+  financial_profile?: Record<string, unknown>
+}
+
 export interface BankStatementFileItem {
   id: string
   bankName: BankName
   file: File
   statementLabel: string
-  accountType: AccountType | ''
+  accountType: StatementTypeSelection
   pdfPassword?: string
   status?: 'ready' | 'queued' | 'processing' | 'completed' | 'failed'
+  statement_metadata?: StatementMetadata
 }
 
 export interface CostEstimate {
@@ -55,6 +91,8 @@ export interface ProcessingResult {
   mode: ProcessingMode
   excel_url: string
   pdf_url: string
+  statement_profile?: StatementProfile
+  financial_profile?: Record<string, unknown>
   account_summary?: SheetPreview    // Sheet 1 — Summary
   monthly_analysis?: SheetPreview   // Sheet 2 — Monthly Analysis
   weekly_analysis?: SheetPreview    // Sheet 3 — Weekly Analysis

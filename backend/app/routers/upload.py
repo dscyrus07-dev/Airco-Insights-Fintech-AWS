@@ -19,6 +19,7 @@ Frontend Flow:
 
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
@@ -33,6 +34,8 @@ from app.services.pipeline_orchestrator import (
     UnsupportedBankError,
     SUPPORTED_BANKS,
 )
+from app.services.audit import AuditService, get_audit_context
+from app.database.session import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +163,7 @@ def _extract_user_id(request: Request) -> str:
 
 @router.post("/process")
 async def upload_bank_statement(
+    request:      Request,
     file:         UploadFile = File(...),
     bank_name:    str        = Form(...),
     full_name:    str        = Form(default=""),
@@ -194,6 +198,13 @@ async def upload_bank_statement(
     account_type = (account_type or "").strip().lower()
     
     try:
+        # Get audit context
+        audit_context = get_audit_context(request)
+        
+        # Get database session for audit logging
+        db = next(get_db())
+        audit_service = AuditService(db)
+        
         # 1. Validate bank name
         if not bank_name or not bank_name.strip():
             raise HTTPException(
@@ -205,8 +216,8 @@ async def upload_bank_statement(
         validate_upload_file(file)
         content = await validate_file_size(file)
         logger.info(
-            "Upload received: %s (%d bytes) bank=%s mode=%s",
-            file.filename, len(content), bank_name, mode
+            "Upload received: %s (%d bytes) bank=%s mode=%s user=%s",
+            file.filename, len(content), bank_name, mode, audit_context.user_id
         )
         
         # 3. Save to temp file
@@ -216,10 +227,12 @@ async def upload_bank_statement(
         # 3b. Store uploaded PDF in MinIO airco-files bucket (user-scoped path)
         user_id = _extract_user_id(current_user)
         safe_pdf_name = os.path.basename(file.filename or "statement.pdf")
+        minio_object_key = f"users/{user_id}/uploads/{os.path.splitext(safe_pdf_name)[0]}_{os.path.basename(temp_pdf_path)}"
+        
         if not upload_to_minio(
             temp_pdf_path,
             bucket="airco-files",
-            object_key=f"users/{user_id}/uploads/{os.path.splitext(safe_pdf_name)[0]}_{os.path.basename(temp_pdf_path)}",
+            object_key=minio_object_key,
         ):
             raise HTTPException(
                 status_code=503,
@@ -230,6 +243,57 @@ async def upload_bank_statement(
                 },
             )
         logger.info("PDF stored in MinIO for user: %s", user_id)
+        
+        # 3c. Create processing job in audit system
+        import hashlib
+        file_hash = hashlib.sha256(content).hexdigest()
+        job_id = f"JOB_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_id[:8]}"
+        
+        processing_job = audit_service.create_processing_job(
+            tenant_id=audit_context.tenant_id,
+            user_id=audit_context.user_id,
+            job_id=job_id,
+            original_filename=file.filename,
+            file_hash=file_hash,
+            file_size_bytes=len(content),
+            processing_mode=mode,
+            batch_id=batch_id,
+            session_id=audit_context.session_id
+        )
+        
+        # 3d. Create job event for upload
+        audit_service.create_job_event(
+            job_id=job_id,
+            event_type="UPLOAD",
+            event_name="FILE_UPLOADED",
+            event_category="UPLOAD",
+            description=f"File uploaded: {file.filename}",
+            metadata={
+                "filename": file.filename,
+                "file_size_bytes": len(content),
+                "bank_name": bank_name,
+                "mode": mode,
+                "minio_object_key": minio_object_key
+            }
+        )
+        
+        # 3e. Create audit log for upload
+        audit_service.create_audit_log(
+            tenant_id=audit_context.tenant_id,
+            event_type="UPLOAD",
+            event_name="PDF_UPLOADED",
+            user_id=audit_context.user_id,
+            session_id=audit_context.session_id,
+            ip_address=audit_context.ip_address,
+            user_agent=audit_context.user_agent,
+            metadata={
+                "filename": file.filename,
+                "file_size_bytes": len(content),
+                "bank_name": bank_name,
+                "mode": mode,
+                "job_id": job_id
+            }
+        )
 
         # 4. Check if PDF is password-protected and unlock if needed
         password_check = _check_pdf_password(temp_pdf_path, pdf_password)
@@ -283,6 +347,8 @@ async def upload_bank_statement(
             mode=mode,
             api_key=api_key,
             output_dir=output_dir,
+            audit_service=audit_service,
+            job_id=job_id,
         )
 
         if result.get("status") != "success":
@@ -296,6 +362,29 @@ async def upload_bank_statement(
             error_code = err.get("code", "PROCESSING_FAILED") if isinstance(err, dict) else "PROCESSING_FAILED"
             status_code = 500 if error_stage in {"unknown", "internal", "excel_generation"} or error_code in {"UNEXPECTED_ERROR", "PROCESSOR_ERROR"} else 400
 
+            # Update processing job with error
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=error_message,
+                error_code=error_code
+            )
+            
+            # Create job event for failure
+            audit_service.create_job_event(
+                job_id=job_id,
+                event_type="PROCESSING",
+                event_name="PROCESSING_FAILED",
+                event_category="PROCESSING",
+                description=f"Processing failed: {error_message}",
+                status='FAILED',
+                error_message=error_message,
+                metadata={
+                    "error_stage": error_stage,
+                    "error_code": error_code
+                }
+            )
+
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -308,6 +397,15 @@ async def upload_bank_statement(
         stats = result.get("stats") or {}
         if int(stats.get("total_transactions", 0) or 0) <= 0:
             bank_name = user_info.get("bank_name", "bank").lower()
+            
+            # Update processing job with no transactions error
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=f"No transactions extracted from {bank_name.title()} statement",
+                error_code='NO_TRANSACTIONS'
+            )
+            
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -319,11 +417,13 @@ async def upload_bank_statement(
         
         # 7. Store generated Excel in MinIO airco-reports bucket (user-scoped path)
         excel_path = result.get("excel_path", "")
+        report_object_key = None
         if excel_path and os.path.isfile(excel_path):
+            report_object_key = f"users/{user_id}/reports/{os.path.basename(excel_path)}"
             if not upload_to_minio(
                 excel_path,
                 bucket="airco-reports",
-                object_key=f"users/{user_id}/reports/{os.path.basename(excel_path)}",
+                object_key=report_object_key,
             ):
                 raise HTTPException(
                     status_code=503,
@@ -335,6 +435,39 @@ async def upload_bank_statement(
                 )
             logger.info("Excel stored in MinIO for user: %s", user_id)
 
+        # 8. Update processing job with success
+        performance = result.get("performance", {})
+        audit_service.update_processing_job(
+            job_id=job_id,
+            status='COMPLETED',
+            bank_name=bank_name,
+            page_count=stats.get("page_count"),
+            transaction_count=stats.get("total_transactions"),
+            parser_used=performance.get("parser_used"),
+            fallback_used=performance.get("fallback_used", False),
+            fallback_level=performance.get("fallback_level", 0),
+            confidence_score=performance.get("confidence_score"),
+            processing_time_ms=performance.get("total_time_ms"),
+            report_object_key=report_object_key
+        )
+        
+        # 9. Create job event for completion
+        audit_service.create_job_event(
+            job_id=job_id,
+            event_type="PROCESSING",
+            event_name="PROCESSING_COMPLETED",
+            event_category="PROCESSING",
+            description=f"Processing completed successfully: {stats.get('total_transactions')} transactions",
+            status='SUCCESS',
+            duration_ms=performance.get("total_time_ms"),
+            metadata={
+                "bank_name": bank_name,
+                "transactions": stats.get("total_transactions"),
+                "parser_used": performance.get("parser_used"),
+                "confidence_score": performance.get("confidence_score")
+            }
+        )
+
         if excel_path:
             result["excel_url"] = f"/download/{os.path.basename(excel_path)}"
 
@@ -342,6 +475,16 @@ async def upload_bank_statement(
     
     except PipelineValidationError as e:
         logger.warning("Validation error: %s", str(e))
+        
+        # Update processing job with validation error
+        if 'job_id' in locals():
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=str(e),
+                error_code=e.error_code
+            )
+        
         raise HTTPException(
             status_code=400,
             detail={
@@ -353,6 +496,16 @@ async def upload_bank_statement(
     
     except UnsupportedBankError as e:
         logger.warning("Unsupported bank: %s", str(e))
+        
+        # Update processing job with unsupported bank error
+        if 'job_id' in locals():
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=str(e),
+                error_code=e.error_code
+            )
+        
         raise HTTPException(
             status_code=400,
             detail={
@@ -365,6 +518,16 @@ async def upload_bank_statement(
     
     except PipelineAbortError as e:
         logger.error("Pipeline abort: %s", str(e))
+        
+        # Update processing job with abort error
+        if 'job_id' in locals():
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=str(e),
+                error_code=e.error_code
+            )
+        
         raise HTTPException(
             status_code=400,
             detail={
@@ -379,6 +542,16 @@ async def upload_bank_statement(
     
     except Exception as e:
         logger.error("Unexpected error: %s", str(e), exc_info=True)
+        
+        # Update processing job with unexpected error
+        if 'job_id' in locals():
+            audit_service.update_processing_job(
+                job_id=job_id,
+                status='FAILED',
+                error_message=str(e),
+                error_code='UNEXPECTED_ERROR'
+            )
+        
         raise HTTPException(
             status_code=500,
             detail={
@@ -387,10 +560,14 @@ async def upload_bank_statement(
                 "code": "UNEXPECTED_ERROR",
             }
         )
+    
     finally:
-        cleanup_file(original_temp_pdf_path)
-        cleanup_file(temp_pdf_path)
-        if decrypted_pdf_path and decrypted_pdf_path != temp_pdf_path:
+        # Cleanup temp files
+        if temp_pdf_path and os.path.exists(temp_pdf_path):
+            cleanup_file(temp_pdf_path)
+        if original_temp_pdf_path and os.path.exists(original_temp_pdf_path):
+            cleanup_file(original_temp_pdf_path)
+        if decrypted_pdf_path and os.path.exists(decrypted_pdf_path):
             cleanup_file(decrypted_pdf_path)
 
 

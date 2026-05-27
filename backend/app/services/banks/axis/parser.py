@@ -32,6 +32,12 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 
+# Import shared components for 3-level fallback
+from .._shared.base_parser import BaseBankParser
+from .._shared.dynamic_column_detector import DynamicColumnDetector
+from .._shared.unsupported_format_queue import UnsupportedFormatQueue
+from .._shared.parser_metrics import ParserMetrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,11 +96,13 @@ class AxisParseResult:
         }
 
 
-class AxisParser:
+class AxisParser(BaseBankParser):
     """
     Accuracy-first Axis Bank statement parser.
     Uses coordinate-based column detection from pdfplumber word positions.
     """
+
+    BANK_NAME = "Axis"
 
     # Date pattern: DD-MM-YYYY
     DATE_RE = re.compile(r'^(\d{2}-\d{2}-\d{4})\s*')
@@ -137,11 +145,81 @@ class AxisParser:
         "Generated On", "Page", "Continued on", "Branch",
     ]
 
-    def __init__(self):
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    def __init__(self, audit_service=None, job_id=None):
+        super().__init__(audit_service=audit_service, job_id=job_id)
+        self.bank_name = self.BANK_NAME
+        self._hygiene_result = None
+        self._collected_parser_metrics = []
+        # Initialize 3-level fallback components
+        self.dynamic_detector = DynamicColumnDetector()
+        self.unsupported_queue = UnsupportedFormatQueue()
+        self.metrics = ParserMetrics()
 
     def parse(self, file_path: str, text_content: str = "") -> AxisParseResult:
-        """Parse Axis Bank statement and extract all transactions."""
+        """
+        MAIN PARSE METHOD - Now with 3-level fallback strategy.
+        
+        Flow:
+        1. Try existing hardcoded parser (coordinate/text)
+        2. If fails, try dynamic column detection
+        3. If fails, add to unsupported queue
+        """
+        start_time = datetime.now()
+
+        try:
+            from pathlib import Path as _Path
+            from app.services.banks._shared.hygiene_check import HygieneCheck as _HC
+            _hc = _HC(pdf_directory=_Path(file_path).parent)
+            _hr = _hc.validate_single_pdf(_Path(file_path))
+            self._hygiene_result = _hr
+            _hc.log_hygiene_check_result(_hr)
+        except Exception as _he:
+            self.logger.warning(f"Hygiene check failed (non-fatal): {_he}")
+
+        try:
+            # Level 1: Try existing Axis parser logic
+            self.logger.info("Level 1: Trying existing Axis hardcoded parser")
+            result = self._parse_existing_hardcoded(file_path, text_content)
+            
+            if self._is_valid_result(result):
+                # Success with hardcoded
+                self._record_metrics("hardcoded", True, result.total_count, start_time)
+                self._write_parser_metric("hardcoded", True, result.total_count, start_time)
+                self.logger.info(f"Level 1 success: {result.total_count} transactions via hardcoded ({result.parse_method})")
+                return result
+            
+            # Level 2: Dynamic fallback
+            self.logger.warning("Level 1 failed for Axis, trying dynamic fallback")
+            self._write_parser_metric("hardcoded", False, 0, start_time)
+            result = self._parse_dynamic(file_path)
+            
+            if self._is_valid_result(result):
+                # Success with dynamic
+                self._record_metrics("dynamic", True, result.total_count, start_time)
+                self._write_parser_metric("dynamic", True, result.total_count, start_time)
+                self.logger.warning(f"Level 2 success: {result.total_count} transactions via dynamic")
+                return result
+            
+            # Level 3: Unsupported format
+            self.logger.error("Level 2 failed for Axis, adding to unsupported queue")
+            self._add_to_unsupported_queue(file_path, "BOTH_PARSERS_FAILED")
+            self._record_metrics("unsupported", False, 0, start_time)
+            self._write_parser_metric("unsupported", False, 0, start_time)
+            
+            return self._create_empty_result("Unsupported Axis statement format")
+            
+        except Exception as e:
+            self.logger.error(f"Parser error for Axis: {e}", exc_info=True)
+            self._add_to_unsupported_queue(file_path, f"PARSER_ERROR: {str(e)}")
+            self._record_metrics("error", False, 0, start_time)
+            self._write_parser_metric("error", False, 0, start_time)
+            return self._create_empty_result(f"Parser error: {str(e)}")
+
+    def _parse_existing_hardcoded(self, file_path: str, text_content: str = "") -> AxisParseResult:
+        """
+        Call the original Axis parser logic.
+        This is the existing parse method without fallback.
+        """
         self.logger.info("Parsing Axis Bank statement: %s", file_path)
 
         # Detect scanned/image-only PDFs early
@@ -178,6 +256,165 @@ class AxisParser:
 
         self.logger.info("Text parsing succeeded: %d transactions", result.total_count)
         return result
+
+    def _parse_dynamic(self, file_path: str) -> AxisParseResult:
+        """
+        Dynamic column detection fallback.
+        Uses shared DynamicColumnDetector.
+        """
+        try:
+            dynamic_result = self.dynamic_detector.parse(file_path, bank_hint=self.bank_name)
+            
+            if dynamic_result and dynamic_result.transactions:
+                # Convert dynamic result to Axis format
+                return self._convert_dynamic_result(dynamic_result)
+            
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Dynamic parser failed for Axis: {e}")
+            return None
+
+    def _convert_dynamic_result(self, dynamic_result) -> AxisParseResult:
+        """
+        Convert DynamicParseResult to AxisParseResult format.
+        """
+        # Convert dynamic transactions to AxisTransaction format
+        axis_transactions = []
+        for txn in dynamic_result.transactions:
+            axis_txn = AxisTransaction(
+                date=txn.get("date", ""),
+                description=txn.get("description", ""),
+                debit=self._parse_amount(txn.get("debit")),
+                credit=self._parse_amount(txn.get("credit")),
+                balance=self._parse_amount(txn.get("balance")),
+                chq_no=txn.get("ref_no", ""),
+                raw_line="",  # Not available from dynamic parser
+                line_number=0  # Not available from dynamic parser
+            )
+            axis_transactions.append(axis_txn)
+        
+        # Calculate totals
+        total_credits = sum(t.credit or 0 for t in axis_transactions)
+        total_debits = sum(t.debit or 0 for t in axis_transactions)
+        opening_balance = axis_transactions[0].balance if axis_transactions else None
+        closing_balance = axis_transactions[-1].balance if axis_transactions else None
+        
+        return AxisParseResult(
+            transactions=axis_transactions,
+            total_count=len(axis_transactions),
+            parse_method="dynamic",
+            opening_balance=opening_balance,
+            closing_balance=closing_balance,
+            total_credits=total_credits,
+            total_debits=total_debits,
+            warnings=[f"Dynamic parsing with {dynamic_result.confidence:.1f}% confidence"]
+        )
+
+    def _is_valid_result(self, result: AxisParseResult) -> bool:
+        """
+        Validation for Axis parsing results.
+        """
+        if not result:
+            return False
+        
+        # Basic validation
+        if result.total_count <= 0:
+            return False
+        
+        if not result.transactions:
+            return False
+        
+        # Axis-specific validation - minimum threshold
+        if result.total_count < 3:
+            return False
+        
+        # Validate first transaction has required fields
+        first_txn = result.transactions[0] if result.transactions else None
+        if not first_txn:
+            return False
+        
+        # Check for essential fields
+        if not first_txn.date:
+            return False
+        
+        if not first_txn.description:
+            return False
+        
+        # Check for amount field (debit or credit)
+        if not (first_txn.debit or first_txn.credit):
+            return False
+        
+        return True
+
+    def _add_to_unsupported_queue(self, file_path: str, reason: str):
+        """Add failed PDF to unsupported format queue."""
+        try:
+            entry = {
+                "bank": self.bank_name,
+                "file": file_path,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat(),
+                "attempts": []  # Could be enhanced to track attempts
+            }
+            
+            self.unsupported_queue.add(entry)
+            self.logger.warning(f"Added to unsupported queue: Axis - {reason}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add to unsupported queue: {e}")
+
+    def _write_parser_metric(self, method: str, success: bool, transaction_count: int, start_time: datetime = None):
+        """Collect parser metric in memory for finalize_job_audit."""
+        try:
+            elapsed_ms = int((datetime.now() - start_time).total_seconds() * 1000) if start_time else 0
+            self._collected_parser_metrics.append({
+                'parser_type': method,
+                'parser_name': f'AXIS_{method}',
+                'bank_name': self.bank_name,
+                'execution_time_ms': elapsed_ms,
+                'transactions_extracted': transaction_count,
+                'confidence_score': 95.0 if success else 0.0,
+                'status': 'SUCCESS' if success else 'FAILED',
+            })
+        except Exception as e:
+            self.logger.warning(f"Failed to collect parser metric (non-fatal): {e}")
+
+    def _record_metrics(self, method: str, success: bool, transaction_count: int, start_time: datetime = None):
+        """Record parsing metrics."""
+        try:
+            processing_time = (datetime.now() - start_time).total_seconds() * 1000 if start_time is not None else 0
+            
+            self.metrics.record_attempt(
+                bank=self.bank_name,
+                method=method,
+                success=success,
+                transaction_count=transaction_count,
+                processing_time_ms=int(processing_time)
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to record metrics: {e}")
+
+    def _create_empty_result(self, error_message: str) -> AxisParseResult:
+        """
+        Create empty result with error message.
+        """
+        return AxisParseResult(
+            transactions=[],
+            total_count=0,
+            parse_method="failed",
+            warnings=[error_message]
+        )
+
+    def _parse_amount(self, amount_str: str) -> Optional[float]:
+        """
+        Parse amount string to float for dynamic results.
+        Reuse existing Axis amount parsing logic.
+        """
+        if not amount_str:
+            return None
+        return self._clean_amount(amount_str)
 
     def _is_image_only_pdf(self, file_path: str) -> bool:
         """Return True if the PDF has no extractable text (scanned image)."""

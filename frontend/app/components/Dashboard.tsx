@@ -16,7 +16,7 @@ import {
   Trash2,
   UserCircle2,
 } from 'lucide-react'
-import { AccountType, BankStatementFileItem, UserDetails, ProcessingResult, ProcessingMode, Step, JobSubmitted, ProfileHistoryResponse, UserUploadHistoryItem, UserReportHistoryItem } from '@/types'
+import { BankStatementFileItem, UserDetails, ProcessingResult, ProcessingMode, Step, JobSubmitted, ProfileHistoryResponse, UserUploadHistoryItem, UserReportHistoryItem, StatementTypeSelection } from '@/types'
 import { SUPPORTED_BANK_OPTIONS } from '@/lib/banks'
 
 type BatchResultItem = {
@@ -536,6 +536,26 @@ export default function Dashboard() {
                 Deletes on {new Date(item.retention_expires_at).toLocaleDateString()}
               </span>
             )}
+            {(item as any).statement_metadata && (
+              <>
+                {(item as any).statement_metadata.has_salary && (
+                  <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                    Salary: ₹{(item as any).statement_metadata.salary_amount.toLocaleString()}
+                  </span>
+                )}
+                {(item as any).statement_metadata.has_loan_repayment && (
+                  <span className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                    Loan: ₹{(item as any).statement_metadata.loan_repayment_amount.toLocaleString()}
+                  </span>
+                )}
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                  Credits: {(item as any).statement_metadata.total_credits}
+                </span>
+                <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                  Debits: {(item as any).statement_metadata.total_debits}
+                </span>
+              </>
+            )}
           </div>
         </div>
         {isUpload ? (
@@ -555,7 +575,26 @@ export default function Dashboard() {
               'text-neutral-500'
             }`}>
               {(item as UserUploadHistoryItem).status}
-            </span>
+            </span>                                 {(item as any).statement_metadata && (
+                                   <>
+                                     {(item as any).statement_metadata.has_salary && (
+                                       <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                                         Salary: ?{(item as any).statement_metadata.salary_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     {(item as any).statement_metadata.has_loan_repayment && (
+                                       <span className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                                         Loan: ?{(item as any).statement_metadata.loan_repayment_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                       Credits: {(item as any).statement_metadata.total_credits}
+                                     </span>
+                                     <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                                       Debits: {(item as any).statement_metadata.total_debits}
+                                     </span>
+                                   </>
+                                 )}
           </div>
         ) : (
           <a
@@ -1005,6 +1044,26 @@ export default function Dashboard() {
                                     Deletes on {new Date(item.retentionExpiresAt).toLocaleDateString()}
                                   </span>
                                 )}
+                                {(item as any).statement_metadata && (
+                                   <>
+                                     {(item as any).statement_metadata.has_salary && (
+                                       <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                                         Salary: ₹{(item as any).statement_metadata.salary_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     {(item as any).statement_metadata.has_loan_repayment && (
+                                       <span className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                                         Loan: ₹{(item as any).statement_metadata.loan_repayment_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                       Credits: {(item as any).statement_metadata.total_credits}
+                                     </span>
+                                     <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                                       Debits: {(item as any).statement_metadata.total_debits}
+                                     </span>
+                                   </>
+                                 )}
                               </div>
                             </div>
                             <div className={`h-2 w-2 rounded-full ${
@@ -1092,6 +1151,26 @@ export default function Dashboard() {
                                     Deletes on {new Date(item.retentionExpiresAt).toLocaleDateString()}
                                   </span>
                                 )}
+                                {(item as any).statement_metadata && (
+                                   <>
+                                     {(item as any).statement_metadata.has_salary && (
+                                       <span className="rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                                         Salary: ₹{(item as any).statement_metadata.salary_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     {(item as any).statement_metadata.has_loan_repayment && (
+                                       <span className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                                         Loan: ₹{(item as any).statement_metadata.loan_repayment_amount.toLocaleString()}
+                                       </span>
+                                     )}
+                                     <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                                       Credits: {(item as any).statement_metadata.total_credits}
+                                     </span>
+                                     <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                                       Debits: {(item as any).statement_metadata.total_debits}
+                                     </span>
+                                   </>
+                                 )}
                               </div>
                             </div>
                             <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
@@ -1175,7 +1254,7 @@ async function uploadStatement({
   batchId?: string
   statementLabel?: string
   bankName?: string
-  accountType?: AccountType | ''
+  accountType?: StatementTypeSelection
 }): Promise<JobSubmitted> {
   const formData = new FormData()
   formData.append('file', file)
@@ -1203,3 +1282,4 @@ async function uploadStatement({
   }
   return data as JobSubmitted
 }
+

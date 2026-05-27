@@ -64,6 +64,11 @@ class FileHistoryService:
         if not retention_expires_at:
             return None
         now = current_time or datetime.utcnow()
+        # Ensure both datetimes are offset-naive for comparison
+        if retention_expires_at.tzinfo is not None:
+            retention_expires_at = retention_expires_at.replace(tzinfo=None)
+        if now.tzinfo is not None:
+            now = now.replace(tzinfo=None)
         remaining_seconds = (retention_expires_at - now).total_seconds()
         if remaining_seconds <= 0:
             return 0
@@ -495,19 +500,38 @@ class FileHistoryService:
     def list_for_user(self, user_id: str) -> dict:
         db = SessionLocal()
         try:
-            records = (
-                db.query(UserFileRecord)
-                .filter(UserFileRecord.user_id == user_id)
-                .order_by(UserFileRecord.created_at.desc())
-                .all()
-            )
+            # Join with statement_metadata if available
+            try:
+                from ..database.audit_models import StatementMetadata
+                records = (
+                    db.query(UserFileRecord, StatementMetadata)
+                    .outerjoin(StatementMetadata, UserFileRecord.job_id == StatementMetadata.job_id)
+                    .filter(UserFileRecord.user_id == user_id)
+                    .order_by(UserFileRecord.created_at.desc())
+                    .all()
+                )
+                has_metadata = True
+            except Exception:
+                # Fallback if statement_metadata table doesn't exist yet
+                records = (
+                    db.query(UserFileRecord)
+                    .filter(UserFileRecord.user_id == user_id)
+                    .order_by(UserFileRecord.created_at.desc())
+                    .all()
+                )
+                has_metadata = False
 
             uploads: list[dict[str, Any]] = []
             reports: list[dict[str, Any]] = []
             processed_count = 0
             batch_groups: dict[str, dict[str, Any]] = {}
 
-            for record in records:
+            for row in records:
+                if has_metadata:
+                    record, metadata = row
+                else:
+                    record, metadata = row, None
+
                 created_at = record.created_at.isoformat() if record.created_at else None
                 if record.status == "completed":
                     processed_count += 1
@@ -546,6 +570,23 @@ class FileHistoryService:
                     batch_group["failed_count"] += 1
 
                 upload_entry = self._entry_payload(record, "upload")
+                # Add statement metadata if available
+                if metadata:
+                    metadata_extra = metadata.extra if isinstance(getattr(metadata, "extra", None), dict) else {}
+                    upload_entry["statement_metadata"] = {
+                        "has_salary": metadata.havesalary,
+                        "salary_count": metadata.noofsalarycredit,
+                        "salary_amount": float(metadata.amtofsalarycredit) if metadata.amtofsalarycredit else 0,
+                        "has_loan_repayment": metadata.hasloanrepayment,
+                        "loan_repayment_count": metadata.noofloanrepayments,
+                        "loan_repayment_amount": float(metadata.amtofloanrepayments) if metadata.amtofloanrepayments else 0,
+                        "total_credits": metadata.noofcredits,
+                        "total_credits_amount": float(metadata.amtofcredits) if metadata.amtofcredits else 0,
+                        "total_debits": metadata.noofdebits,
+                        "total_debits_amount": float(metadata.amtofdebits) if metadata.amtofdebits else 0,
+                        "statement_profile": metadata_extra.get("statement_profile"),
+                        "financial_profile": metadata_extra.get("financial_profile"),
+                    }
                 uploads.append(upload_entry)
                 batch_group["uploads"].append(upload_entry)
 
@@ -570,18 +611,40 @@ class FileHistoryService:
 
                 if record.status == "completed":
                     report_entry = self._entry_payload(record, "report")
+                    # Add statement metadata if available
+                    if metadata:
+                        metadata_extra = metadata.extra if isinstance(getattr(metadata, "extra", None), dict) else {}
+                        report_entry["statement_metadata"] = {
+                            "has_salary": metadata.havesalary,
+                            "salary_count": metadata.noofsalarycredit,
+                            "salary_amount": float(metadata.amtofsalarycredit) if metadata.amtofsalarycredit else 0,
+                            "has_loan_repayment": metadata.hasloanrepayment,
+                            "loan_repayment_count": metadata.noofloanrepayments,
+                            "loan_repayment_amount": float(metadata.amtofloanrepayments) if metadata.amtofloanrepayments else 0,
+                            "total_credits": metadata.noofcredits,
+                            "total_credits_amount": float(metadata.amtofcredits) if metadata.amtofcredits else 0,
+                            "total_debits": metadata.noofdebits,
+                            "total_debits_amount": float(metadata.amtofdebits) if metadata.amtofdebits else 0,
+                            "statement_profile": metadata_extra.get("statement_profile"),
+                            "financial_profile": metadata_extra.get("financial_profile"),
+                        }
                     reports.append(report_entry)
                     batch_group["reports"].append(report_entry)
                     bank_group["reports"].append(report_entry)
 
+            # Extract UserFileRecord from tuple if using outerjoin (has_metadata=True)
             latest = records[0] if records else None
+            if latest and isinstance(latest, tuple):
+                latest = latest[0]  # Extract UserFileRecord from (UserFileRecord, StatementMetadata) tuple
+            # Use getattr with default to safely access account_type
+            latest_account_type = getattr(latest, 'account_type', None) if latest else None
             return {
                 "summary": {
                     "total_uploads": len(records),
                     "processed_files": processed_count,
                     "generated_reports": len(reports),
                     "total_batches": len(batch_groups),
-                    "latest_account_type": latest.account_type if latest else None,
+                    "latest_account_type": latest_account_type,
                 },
                 "uploads": uploads,
                 "reports": reports,

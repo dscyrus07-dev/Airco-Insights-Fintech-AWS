@@ -5,7 +5,7 @@ Rule-based classifier for SBI transactions using keyword matching.
 """
 
 import logging
-from typing import Tuple
+from typing import Tuple, Dict, List
 
 from app.services.banks._shared.category_registry import normalize_category
 
@@ -69,6 +69,40 @@ class SBIClassifier:
         
         # Default to "Others" if no match
         return (normalize_category("Others", is_debit=is_debit), 100)
+
+    def get_all_categories(self) -> dict:
+        """Return all possible display categories grouped by direction."""
+        return {
+            "credit": [
+                "Salary",
+                "Cash Deposit",
+                "Cheque Deposit",
+                "UPI",
+                "NEFT/RTGS",
+                "Investment",
+            ],
+            "debit": [
+                "ATM Withdrawal",
+                "UPI",
+                "NEFT/RTGS",
+                "Bank Charges",
+                "Loan EMI",
+                "Credit Card",
+                "Food & Dining",
+                "Shopping",
+                "Utilities",
+                "Investment",
+                "Cheque",
+                "Insurance",
+                "Tax",
+                "Fuel",
+                "Travel",
+                "Medical",
+                "Education",
+                "Rent",
+                "Subscriptions",
+            ],
+        }
 
     def get_category_stats(self) -> dict:
         """Return classifier statistics."""

@@ -14,8 +14,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BankOfBarodaStatementMetadata(GenericStructureMetadata):
+    dr_count: Optional[int] = None
+    cr_count: Optional[int] = None
+    total_debits: Optional[float] = None
+    total_credits: Optional[float] = None
+    ifsc: Optional[str] = None
+
     @property
     def expected_transaction_count(self) -> Optional[int]:
+        if self.dr_count is not None and self.cr_count is not None:
+            return self.dr_count + self.cr_count
         return None
 
 
@@ -83,7 +91,11 @@ class BankOfBarodaStructureValidator:
         )
         if account_ifsc_match:
             metadata.account_number = account_ifsc_match.group(1)
-            metadata.ifsc = account_ifsc_match.group(2)
+            raw_ifsc = account_ifsc_match.group(2)
+            if re.match(r"^BARB0[A-Z0-9]{6}$", raw_ifsc, re.IGNORECASE):
+                metadata.ifsc = raw_ifsc
+            else:
+                metadata.ifsc = raw_ifsc
 
         holder_match = re.search(
             r"Account\s*Name\s+Branch\s*Name\s+([A-Z0-9 .&/-]+?)\s{2,}|Account\s*Name\s+Branch\s*Name\s*\n([^\n]+)",
@@ -100,6 +112,38 @@ class BankOfBarodaStructureValidator:
         )
         if opening_match:
             metadata.opening_balance = self._parse_amount(opening_match.group(1))
+
+        for pat in (
+            r"Total\s+Debit\s*[:\-]?\s*([\d,]+\.\d{2})",
+            r"Debit\s+Total\s*[:\-]?\s*([\d,]+\.\d{2})",
+        ):
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                metadata.total_debits = self._parse_amount(m.group(1))
+                break
+
+        for pat in (
+            r"Total\s+Credit\s*[:\-]?\s*([\d,]+\.\d{2})",
+            r"Credit\s+Total\s*[:\-]?\s*([\d,]+\.\d{2})",
+        ):
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                metadata.total_credits = self._parse_amount(m.group(1))
+                break
+
+        dr_m = re.search(r"No\.\s*of\s*Debit\s*Transactions?\s*[:\-]?\s*(\d+)", text, re.IGNORECASE)
+        if dr_m:
+            metadata.dr_count = int(dr_m.group(1))
+        cr_m = re.search(r"No\.\s*of\s*Credit\s*Transactions?\s*[:\-]?\s*(\d+)", text, re.IGNORECASE)
+        if cr_m:
+            metadata.cr_count = int(cr_m.group(1))
+
+        if metadata.dr_count is None and metadata.cr_count is None:
+            total_m = re.search(r"Total\s*Transactions?\s*[:\-]?\s*(\d+)", text, re.IGNORECASE)
+            if total_m:
+                total = int(total_m.group(1))
+                metadata.dr_count = total // 2
+                metadata.cr_count = total - metadata.dr_count
 
         return metadata
 

@@ -104,14 +104,18 @@ class SBIProcessor:
         strict_mode: bool = True,
         enable_ai: bool = False,
         api_key: Optional[str] = None,
+        audit_service=None,
+        job_id: Optional[str] = None,
     ):
         self.strict_mode = strict_mode
         self.enable_ai = enable_ai
         self.api_key = api_key
+        self.audit_service = audit_service
+        self.job_id = job_id
 
         self.pdf_validator = PDFIntegrityValidator()
         self.structure_validator = SBIStructureValidator()
-        self.parser = SBIParser()
+        self.parser = SBIParser(audit_service=audit_service, job_id=job_id)
         self.transaction_validator = SBITransactionValidator(strict_mode=False)
         self.reconciliation = SBIReconciliation(strict_mode=False)
         self.rule_engine = SBIRuleEngine()
@@ -328,6 +332,30 @@ class SBIProcessor:
             metrics.transaction_count = len(all_transactions)
             metrics.total_time_ms = (time.monotonic() - pipeline_start) * 1000
 
+            if self.audit_service and self.job_id:
+                try:
+                    self.audit_service.finalize_job_audit(
+                        self.job_id,
+                        hygiene_result=getattr(self.parser, '_hygiene_result', None),
+                        parser_metrics_collected=getattr(self.parser, '_collected_parser_metrics', []),
+                        raw_transactions=all_transactions,
+                        excel_path=excel_path,
+                        sheet_count=11,
+                        template_used='SBI_FREE',
+                        generation_time_ms=int(metrics.step_timings.get('excel_generation', 0)),
+                        transaction_count=len(all_transactions),
+                        classified_transactions=all_transactions,
+                        statement_header={
+                            "userid": (user_info or {}).get("user_id"),
+                            "filename": (file_path or "").replace("\\", "/").rsplit("/", 1)[-1],
+                            "bankname": getattr(self.parser, "BANK_NAME", "SBI"),
+                            "accountno": (user_info or {}).get("account_number") or (user_info or {}).get("account_no"),
+                            "formatidentify": getattr(getattr(self.parser, "_hygiene_result", None), "format_id", None),
+                        },
+                    )
+                except Exception as _ae:
+                    self.logger.error('finalize_job_audit failed (non-fatal): %s', _ae, exc_info=True)
+
             return SBIProcessingResult(
                 status="success",
                 excel_path=excel_path,
@@ -368,11 +396,14 @@ class SBIProcessor:
             os.makedirs(parent_dir, exist_ok=True)
         try:
             self.logger.info("SBI: Using formula-based Excel engine")
-            return self.formula_excel_engine.generate(transactions, metadata, excel_path)
+            result = self.formula_excel_engine.generate(transactions, metadata, excel_path)
+            return result
         except Exception as e:
             self.logger.error("Formula Excel generation failed for SBI: %s", str(e), exc_info=True)
             self.logger.warning("Formula Excel generation failed for SBI, falling back to legacy generator")
-            return self.excel_generator.generate(transactions, aggregation, None, excel_path)
+            result = self.excel_generator.generate(transactions, aggregation, None, excel_path)
+            
+            return result
 
     def _failure_result(
         self,

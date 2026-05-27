@@ -40,7 +40,7 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_REGION: ${S3_REGION:-ap-south-1}
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-change-me-rabbitmq-user}:${RABBITMQ_DEFAULT_PASS:-change-me-rabbitmq-pass}@rabbitmq:5672/
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       MAX_FILE_SIZE_MB: 20
@@ -146,26 +146,6 @@ services:
       - redis
       - ai-service
 
-  app-postgres:
-    image: postgres:15
-    container_name: airco_app_postgres
-    restart: unless-stopped
-    networks:
-      - airco-network
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: ${APP_DB_NAME:-airco_app}
-      POSTGRES_USER: ${APP_DB_USER:-airco}
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-airco123}
-    volumes:
-      - app_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${APP_DB_USER:-airco} -d ${APP_DB_NAME:-airco_app}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build: ./backend
     restart: always
@@ -174,7 +154,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/airco_app}
+      DATABASE_URL: ${DATABASE_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
@@ -213,8 +193,6 @@ services:
       ai-service:
         condition: service_healthy
       report-service:
-        condition: service_healthy
-      app-postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -404,5 +382,4 @@ volumes:
   redis_data:
   rabbitmq_data:
   minio_data:
-  app_postgres_data:
   keycloak_postgres_data:

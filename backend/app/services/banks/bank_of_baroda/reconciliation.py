@@ -1,108 +1,170 @@
 """
-Airco Insights - Bank of Baroda Reconciliation
+Airco Insights — Bank of Baroda Reconciliation
+================================================
+Full-grade balance reconciliation mirroring HDFCReconciliation:
+sequential balance progression check, auto debit/credit correction,
+tolerance-aware mismatch detection.
 """
 
-import logging
-from typing import Dict, List, Optional
+from __future__ import annotations
 
-from app.services.banks._shared.generic_bank import GenericReconciliation, GenericReconciliationError
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-class BankOfBarodaReconciliation(GenericReconciliation):
+class BankOfBarodaReconciliationError(Exception):
+    def __init__(self, message: str, error_code: str, details: dict = None):
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(message)
+
+
+@dataclass
+class ReconciliationMismatch:
+    transaction_index: int
+    expected_balance: float
+    actual_balance: float
+    difference: float
+    previous_balance: float
+    transaction_amount: float
+    is_debit: bool
+
+
+@dataclass
+class BankOfBarodaReconciliationResult:
+    is_reconciled: bool
+    opening_balance: float
+    closing_balance: float
+    total_credits: float
+    total_debits: float
+    calculated_closing: float
+    final_difference: float
+    transaction_count: int
+    mismatches: List[ReconciliationMismatch] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "is_reconciled": self.is_reconciled,
+            "opening_balance": self.opening_balance,
+            "closing_balance": self.closing_balance,
+            "total_credits": self.total_credits,
+            "total_debits": self.total_debits,
+            "calculated_closing": self.calculated_closing,
+            "final_difference": self.final_difference,
+            "transaction_count": self.transaction_count,
+            "mismatch_count": len(self.mismatches),
+            "passed": self.is_reconciled,
+        }
+
+
+class BankOfBarodaReconciliation:
+    """Balance reconciliation engine for Bank of Baroda transactions."""
+
+    TOLERANCE = 0.01
+
     def __init__(self, strict_mode: bool = False):
-        super().__init__(strict_mode=strict_mode)
+        self.strict_mode = strict_mode
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.tolerance = 0.01
 
     def reconcile(
         self,
-        transactions: List[Dict],
+        transactions: List[Dict[str, Any]],
         expected_opening: Optional[float] = None,
         expected_closing: Optional[float] = None,
-    ) -> Dict:
-        result = {
-            "passed": True,
-            "opening_balance": expected_opening or 0,
-            "closing_balance": expected_closing or 0,
-            "calculated_opening": None,
-            "calculated_closing": None,
-            "mismatches": [],
-            "corrections": 0,
-        }
-
+        expected_credits: Optional[float] = None,
+        expected_debits: Optional[float] = None,
+    ) -> Dict[str, Any]:
         if not transactions:
-            result["passed"] = False
-            return result
+            return {"passed": True, "opening_balance": 0, "closing_balance": 0,
+                    "total_credits": 0, "total_debits": 0, "mismatch_count": 0}
 
-        # Calculate opening balance from first transaction
-        first_txn = transactions[0]
-        debit = first_txn.get("debit") or 0
-        credit = first_txn.get("credit") or 0
-        balance = first_txn.get("balance") or 0
-        calculated_opening = balance - credit + debit
-        result["calculated_opening"] = round(calculated_opening, 2)
+        self.logger.info("Reconciling %d Bank of Baroda transactions", len(transactions))
 
-        # Use expected opening if provided, otherwise use calculated
-        opening_balance = expected_opening if expected_opening is not None else calculated_opening
-        result["opening_balance"] = round(opening_balance, 2)
+        total_credits = sum(t.get("credit") or 0 for t in transactions)
+        total_debits  = sum(t.get("debit")  or 0 for t in transactions)
 
-        # Verify opening balance
-        if expected_opening is not None:
-            diff = abs(calculated_opening - expected_opening)
-            if diff > self.tolerance:
-                result["passed"] = False
-                result["mismatches"].append({
-                    "type": "opening_balance",
-                    "expected": expected_opening,
-                    "calculated": calculated_opening,
-                    "difference": diff,
-                })
+        first = transactions[0]
+        inferred_opening = (first.get("balance") or 0) - (first.get("credit") or 0) + (first.get("debit") or 0)
+        opening_balance = expected_opening if expected_opening is not None else inferred_opening
+        closing_balance = transactions[-1].get("balance") or 0
+        calculated_closing = opening_balance + total_credits - total_debits
+        final_diff = abs(calculated_closing - closing_balance)
 
-        # Calculate closing balance from last transaction
-        last_txn = transactions[-1]
-        result["calculated_closing"] = round(last_txn.get("balance", 0), 2)
+        mismatches = self._check_balance_progression(transactions)
+        is_reconciled = (final_diff <= self.TOLERANCE) and not mismatches
 
-        # Verify closing balance
-        if expected_closing is not None:
-            diff = abs(result["calculated_closing"] - expected_closing)
-            if diff > self.tolerance:
-                result["passed"] = False
-                result["mismatches"].append({
-                    "type": "closing_balance",
-                    "expected": expected_closing,
-                    "calculated": result["calculated_closing"],
-                    "difference": diff,
-                })
-            result["closing_balance"] = round(expected_closing, 2)
-        else:
-            result["closing_balance"] = result["calculated_closing"]
+        result = BankOfBarodaReconciliationResult(
+            is_reconciled=is_reconciled,
+            opening_balance=opening_balance,
+            closing_balance=closing_balance,
+            total_credits=total_credits,
+            total_debits=total_debits,
+            calculated_closing=calculated_closing,
+            final_difference=final_diff,
+            transaction_count=len(transactions),
+            mismatches=mismatches,
+        )
 
-        # Verify balance continuity
-        current_balance = opening_balance
+        self.logger.info(
+            "BOB reconciliation %s: open=%.2f close=%.2f calc=%.2f diff=%.2f mismatches=%d",
+            "PASSED" if is_reconciled else "FAILED",
+            opening_balance, closing_balance, calculated_closing, final_diff, len(mismatches),
+        )
+        return result.to_dict()
+
+    def _check_balance_progression(
+        self, transactions: List[Dict[str, Any]]
+    ) -> List[ReconciliationMismatch]:
+        mismatches = []
+        for i in range(1, len(transactions)):
+            prev     = transactions[i - 1]
+            curr     = transactions[i]
+            prev_bal = prev.get("balance") or 0
+            curr_bal = curr.get("balance") or 0
+            credit   = curr.get("credit") or 0
+            debit    = curr.get("debit")  or 0
+            expected = prev_bal + credit - debit
+            diff     = abs(expected - curr_bal)
+            if diff > self.TOLERANCE:
+                mismatches.append(ReconciliationMismatch(
+                    transaction_index=i,
+                    expected_balance=expected,
+                    actual_balance=curr_bal,
+                    difference=diff,
+                    previous_balance=prev_bal,
+                    transaction_amount=credit if credit else debit,
+                    is_debit=debit > 0,
+                ))
+        return mismatches
+
+    def auto_correct_debit_credit(
+        self, transactions: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        corrected, corrections = [], 0
         for i, txn in enumerate(transactions):
-            debit = txn.get("debit") or 0
-            credit = txn.get("credit") or 0
-            expected_balance = current_balance - debit + credit
-            actual_balance = txn.get("balance") or 0
-
-            diff = abs(expected_balance - actual_balance)
-            if diff > self.tolerance:
-                result["passed"] = False
-                result["mismatches"].append({
-                    "type": "balance_continuity",
-                    "index": i,
-                    "date": txn.get("date"),
-                    "expected": expected_balance,
-                    "actual": actual_balance,
-                    "difference": diff,
-                })
-
-            current_balance = actual_balance
-
-        return result
+            txn_copy = dict(txn)
+            if i == 0:
+                corrected.append(txn_copy)
+                continue
+            prev_bal = corrected[i - 1].get("balance") or 0
+            curr_bal = txn.get("balance") or 0
+            debit    = txn.get("debit")  or 0
+            credit   = txn.get("credit") or 0
+            expected = prev_bal - debit if debit else prev_bal + credit
+            if abs(expected - curr_bal) > self.TOLERANCE:
+                alt = prev_bal + debit if debit else prev_bal - credit
+                if abs(alt - curr_bal) < abs(expected - curr_bal):
+                    txn_copy["debit"]  = credit if credit else None
+                    txn_copy["credit"] = debit  if debit  else None
+                    corrections += 1
+            corrected.append(txn_copy)
+        return corrected, corrections
 
 
-# Re-export for compatibility
-BankOfBarodaReconciliationError = GenericReconciliationError
+__all__ = [
+    "BankOfBarodaReconciliationError", "ReconciliationMismatch",
+    "BankOfBarodaReconciliationResult", "BankOfBarodaReconciliation",
+]

@@ -2,9 +2,9 @@ param(
     [ValidateSet("start", "stop", "status", "restart", "fullstart", "rebuild", "help")]
     [string]$Action = "help",
 
-    [string]$InstanceId = "i-0f6be511029581929",
+    [string]$InstanceId = "i-05fc339cc9af9d24a",
 
-    [string]$Region = "us-east-1",
+    [string]$Region = "ap-south-1",
 
     [string]$AwsProfile = "",
 
@@ -12,7 +12,7 @@ param(
 
     [string]$KeyPath = "x:\FinTech SAAS\Airco Insights Fintech\ssl\Airco Fintech.pem",
 
-    [string]$RemoteProjectPath = "/home/ubuntu/airco-insights",
+    [string]$RemoteProjectPath = "/opt/airco",
 
     [int]$SshTimeoutSeconds = 600,
 

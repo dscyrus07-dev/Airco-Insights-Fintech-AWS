@@ -51,6 +51,8 @@ class CanaraStructureValidator:
     def _check_markers(self, text: str) -> float:
         markers = [
             r"Current\s*&\s*Saving\s*Account\s*Statement",
+            r"Canara\s*Bank",
+            r"CNRB",
             r"IFSC\s*Code\s+CNRB[0-9A-Z]{7}",
             r"Txn\s*Date\s+Value\s*Date\s+Cheque\s*No\.\s+Description\s+Branch\s+Debit\s+Credit\s+Balance",
             r"Searched\s*By\s*From\s+\d{2}\s+[A-Za-z]{3}\s+\d{4}\s+To\s+\d{2}\s+[A-Za-z]{3}\s+\d{4}",

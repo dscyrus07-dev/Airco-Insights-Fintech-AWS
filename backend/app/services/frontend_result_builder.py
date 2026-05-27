@@ -103,6 +103,8 @@ def build_frontend_processing_result(
         "excel_path": excel_path,
         "excel_url": resolved_excel_url,
         "pdf_url": result.get("pdf_url", ""),
+        "statement_profile": result.get("statement_profile", {}),
+        "financial_profile": result.get("financial_profile", {}),
         "stats": result.get("stats", {}),
         "validation": result.get("validation", {}),
         "performance": result.get("performance", {}),

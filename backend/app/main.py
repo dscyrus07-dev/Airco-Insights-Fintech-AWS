@@ -11,8 +11,13 @@ from app.api.routes import sync as sync_api
 from app.api.routes import feedback as feedback_api
 from app.api.routes import jobs as jobs_api
 from app.api.routes import profile as profile_api
+from app.api.routes import auth as auth_api
+from app.api.routes import audit_admin as audit_admin_api
 from app.services.retention_service import retention_service
 from app.middleware.correlation import CorrelationMiddleware
+from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.audit_context import AuditContextMiddleware
+from app.middleware.request_logger import RequestLoggerMiddleware
 from app.utils.logging import get_logger
 from contextlib import asynccontextmanager
 from app.database.session import initialize_database
@@ -46,6 +51,10 @@ async def lifespan(app: FastAPI):
     # Start retention sweep worker
     await retention_service.start()
 
+    # Start system health monitor
+    from app.services.monitoring import health_monitor
+    await health_monitor.start()
+
     # Start task processor as a fallback path after RabbitMQ is ready
     await task_processor.start()
     
@@ -54,6 +63,8 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    from app.services.monitoring import health_monitor
+    await health_monitor.stop()
     await retention_service.stop()
     await message_queue.close()
     await task_processor.stop()
@@ -76,6 +87,15 @@ app.add_middleware(
 # Add correlation ID middleware
 app.add_middleware(CorrelationMiddleware)
 
+# Add auth middleware (sets user context headers before audit context)
+app.add_middleware(AuthMiddleware)
+
+# Add audit context middleware (extracts context from headers)
+app.add_middleware(AuditContextMiddleware)
+
+# Add request logger middleware (logs every request to api_request_logs)
+app.add_middleware(RequestLoggerMiddleware)
+
 # API Routes
 app.include_router(upload.router, tags=["Processing"])
 app.include_router(download.router, tags=["Download"])
@@ -85,6 +105,8 @@ app.include_router(sync_api.router, prefix="/api", tags=["Sync"])
 app.include_router(feedback_api.router, prefix="/api", tags=["Feedback"])
 app.include_router(jobs_api.router, prefix="/api", tags=["Jobs"])
 app.include_router(profile_api.router, prefix="/api", tags=["Profile"])
+app.include_router(auth_api.router, prefix="/api", tags=["Authentication"])
+app.include_router(audit_admin_api.router, prefix="/api", tags=["Audit Admin"])
 
 
 @app.get("/health")

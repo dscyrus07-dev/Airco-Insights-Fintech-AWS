@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, DragEvent } from 'react'
 import { Upload, FileText, X } from 'lucide-react'
-import { AccountType, BankStatementFileItem, BankName } from '@/types'
+import { BankStatementFileItem, BankName, StatementTypeSelection } from '@/types'
 import { validateFile } from '@/lib/validation'
 
 interface UploadStepProps {
@@ -66,7 +66,7 @@ export default function UploadStep({
         bankName,
         file,
         statementLabel: makeStatementLabel(bankName, file, index),
-        accountType: '',
+        accountType: 'auto_detect',
         status: 'ready',
       }))
 
@@ -85,7 +85,7 @@ export default function UploadStep({
     })
   }
 
-  const updateFileAccountType = (bankName: BankName, fileId: string, accountType: AccountType | '') => {
+  const updateFileAccountType = (bankName: BankName, fileId: string, accountType: StatementTypeSelection) => {
     onFilesChange({
       ...filesByBank,
       [bankName]: (filesByBank[bankName] || []).map((item) =>
@@ -199,10 +199,10 @@ export default function UploadStep({
                           </label>
                           <select
                             value={item.accountType}
-                            onChange={(e) => updateFileAccountType(bankName, item.id, e.target.value as AccountType | '')}
+                            onChange={(e) => updateFileAccountType(bankName, item.id, e.target.value as StatementTypeSelection)}
                             className="w-full rounded-md border border-border bg-white px-2.5 py-2 text-xs text-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-1"
                           >
-                            <option value="">Select type</option>
+                            <option value="auto_detect">Auto Detect (Recommended)</option>
                             <option value="salaried">Salaried</option>
                             <option value="business">Business</option>
                           </select>

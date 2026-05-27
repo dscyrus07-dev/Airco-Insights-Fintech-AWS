@@ -93,13 +93,17 @@ class ICICIProcessor:
         strict_mode: bool = True,
         enable_ai:   bool = False,
         api_key:     Optional[str] = None,
+        audit_service=None,
+        job_id: Optional[str] = None,
     ):
         self.strict_mode = strict_mode
         self.enable_ai   = enable_ai
         self.api_key     = api_key
+        self.audit_service = audit_service
+        self.job_id = job_id
 
         self.structure_validator   = ICICIStructureValidator()
-        self.parser                = ICICIParser()
+        self.parser                = ICICIParser(audit_service=audit_service, job_id=job_id)
         self.transaction_validator = ICICITransactionValidator(strict_mode=False)
         self.reconciliation        = ICICIReconciliation(strict_mode=False)
         self.rule_engine           = ICICIRuleEngine()
@@ -302,6 +306,30 @@ class ICICIProcessor:
 
             metrics.step_timings["report_generation"] = round((time.monotonic() - step_start) * 1000, 1)
             metrics.total_time_ms = round((time.monotonic() - pipeline_start) * 1000, 1)
+
+            if self.audit_service and self.job_id:
+                try:
+                    self.audit_service.finalize_job_audit(
+                        self.job_id,
+                        hygiene_result=getattr(self.parser, '_hygiene_result', None),
+                        parser_metrics_collected=getattr(self.parser, '_collected_parser_metrics', []),
+                        raw_transactions=all_transactions,
+                        excel_path=excel_path,
+                        sheet_count=report_stats.get('sheets', 11),
+                        template_used='ICICI_FREE',
+                        generation_time_ms=int(metrics.step_timings.get('report_generation', 0)),
+                        transaction_count=len(all_transactions),
+                        classified_transactions=all_transactions,
+                        statement_header={
+                            "userid": (user_info or {}).get("user_id"),
+                            "filename": (file_path or "").replace("\\", "/").rsplit("/", 1)[-1],
+                            "bankname": getattr(self.parser, "BANK_NAME", "ICICI"),
+                            "accountno": (user_info or {}).get("account_number") or (user_info or {}).get("account_no"),
+                            "formatidentify": getattr(getattr(self.parser, "_hygiene_result", None), "format_id", None),
+                        },
+                    )
+                except Exception as _ae:
+                    self.logger.error('finalize_job_audit failed (non-fatal): %s', _ae, exc_info=True)
 
             self.logger.info(
                 "ICICI FREE MODE complete: %d transactions, %d recurring, %.1fms, reconciled=%s",

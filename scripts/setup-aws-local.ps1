@@ -2,7 +2,7 @@ param(
     [ValidateSet("full", "bootstrap", "deploy", "ssh", "status", "logs")]
     [string]$Action = "full",
     [Alias("Host")]
-    [string]$TargetHost = "ec2-52-2-56-129.compute-1.amazonaws.com",
+    [string]$TargetHost = "ec2-13-234-242-2.ap-south-1.compute.amazonaws.com",
     [string]$User = "ubuntu",
     [string]$KeyPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "ssl\Airco Fintech.pem"),
     [string]$RemoteProjectDir = "/home/ubuntu/airco-insights",

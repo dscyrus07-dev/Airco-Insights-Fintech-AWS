@@ -303,6 +303,8 @@ def process_statement(
     mode: str = "free",
     api_key: Optional[str] = None,
     output_dir: Optional[str] = None,
+    audit_service=None,
+    job_id: Optional[str] = None,
 ) -> dict:
     """
     Process bank statement using bank-specific processor.
@@ -315,6 +317,8 @@ def process_statement(
         mode: Processing mode — "free" or "hybrid"
         api_key: Anthropic API key (required for hybrid mode)
         output_dir: Output directory for generated files
+        audit_service: Audit service for logging
+        job_id: Job ID for audit tracking
         
     Returns:
         {
@@ -341,7 +345,7 @@ def process_statement(
     bank_name = user_info.get("bank_name", "")
     bank_key = _normalize_bank_name(bank_name)
     
-    logger.info("Processing %s statement: bank_key=%s", bank_name, bank_key)
+    logger.info("Processing %s statement: bank_key=%s job_id=%s", bank_name, bank_key, job_id)
     
     # =================================================================
     # STEP 2: Get Bank-Specific Processor
@@ -365,6 +369,8 @@ def process_statement(
         strict_mode=False,  # Allow processing to continue with warnings
         enable_ai=enable_ai,
         api_key=api_key if enable_ai else None,
+        audit_service=audit_service,
+        job_id=job_id,
     )
     
     # =================================================================

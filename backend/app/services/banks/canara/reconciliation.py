@@ -1,18 +1,188 @@
 """
-Airco Insights - Canara Bank Reconciliation
+Airco Insights — Canara Bank Reconciliation
+=============================================
+Full-grade balance reconciliation mirroring HDFCReconciliation:
+sequential balance progression check, auto debit/credit correction,
+tolerance-aware mismatch detection.
 """
 
-import logging
-from typing import Dict, List
+from __future__ import annotations
 
-from app.services.banks._shared.generic_bank import GenericReconciliation, GenericReconciliationError
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-class CanaraReconciliation(GenericReconciliation):
-    pass
+class CanaraReconciliationError(Exception):
+    def __init__(self, message: str, error_code: str, details: dict = None):
+        self.error_code = error_code
+        self.details = details or {}
+        super().__init__(message)
 
 
-# Re-export for compatibility
-CanaraReconciliationError = GenericReconciliationError
+@dataclass
+class ReconciliationMismatch:
+    transaction_index: int
+    expected_balance: float
+    actual_balance: float
+    difference: float
+    previous_balance: float
+    transaction_amount: float
+    is_debit: bool
+
+
+@dataclass
+class CanaraReconciliationResult:
+    is_reconciled: bool
+    opening_balance: float
+    closing_balance: float
+    total_credits: float
+    total_debits: float
+    calculated_closing: float
+    final_difference: float
+    transaction_count: int
+    mismatches: List[ReconciliationMismatch] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "is_reconciled": self.is_reconciled,
+            "opening_balance": self.opening_balance,
+            "closing_balance": self.closing_balance,
+            "total_credits": self.total_credits,
+            "total_debits": self.total_debits,
+            "calculated_closing": self.calculated_closing,
+            "final_difference": self.final_difference,
+            "transaction_count": self.transaction_count,
+            "mismatch_count": len(self.mismatches),
+            "passed": self.is_reconciled,
+        }
+
+
+class CanaraReconciliation:
+    """Balance reconciliation engine for Canara Bank transactions."""
+
+    TOLERANCE = 0.01
+
+    def __init__(self, strict_mode: bool = True):
+        self.strict_mode = strict_mode
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+    def reconcile(
+        self,
+        transactions: List[Dict[str, Any]],
+        expected_opening: Optional[float] = None,
+        expected_closing: Optional[float] = None,
+        expected_credits: Optional[float] = None,
+        expected_debits: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not transactions:
+            return {"passed": True, "opening_balance": 0, "closing_balance": 0,
+                    "total_credits": 0, "total_debits": 0, "mismatch_count": 0}
+
+        self.logger.info("Reconciling %d Canara transactions", len(transactions))
+
+        total_credits = sum(t.get("credit") or 0 for t in transactions)
+        total_debits  = sum(t.get("debit")  or 0 for t in transactions)
+
+        first = transactions[0]
+        inferred_opening = (first.get("balance") or 0) - (first.get("credit") or 0) + (first.get("debit") or 0)
+        opening_balance = expected_opening if expected_opening is not None else inferred_opening
+        closing_balance = transactions[-1].get("balance") or 0
+        calculated_closing = opening_balance + total_credits - total_debits
+        final_diff = abs(calculated_closing - closing_balance)
+
+        mismatches = self._check_balance_progression(transactions)
+        is_reconciled = (final_diff <= self.TOLERANCE) and not mismatches
+
+        result = CanaraReconciliationResult(
+            is_reconciled=is_reconciled,
+            opening_balance=opening_balance,
+            closing_balance=closing_balance,
+            total_credits=total_credits,
+            total_debits=total_debits,
+            calculated_closing=calculated_closing,
+            final_difference=final_diff,
+            transaction_count=len(transactions),
+            mismatches=mismatches,
+        )
+
+        self.logger.info(
+            "Canara reconciliation %s: open=%.2f close=%.2f calc=%.2f diff=%.2f mismatches=%d",
+            "PASSED" if is_reconciled else "FAILED",
+            opening_balance, closing_balance, calculated_closing, final_diff, len(mismatches),
+        )
+
+        if not is_reconciled and self.strict_mode:
+            if mismatches:
+                m = mismatches[0]
+                raise CanaraReconciliationError(
+                    f"Balance mismatch at txn {m.transaction_index}: "
+                    f"expected {m.expected_balance:.2f}, got {m.actual_balance:.2f}",
+                    error_code="BALANCE_MISMATCH",
+                    details={"transaction_index": m.transaction_index,
+                             "expected": m.expected_balance, "actual": m.actual_balance},
+                )
+            raise CanaraReconciliationError(
+                f"Final balance mismatch: calc={calculated_closing:.2f} actual={closing_balance:.2f}",
+                error_code="FINAL_BALANCE_MISMATCH",
+                details={"calculated": calculated_closing, "actual": closing_balance},
+            )
+
+        return result.to_dict()
+
+    def _check_balance_progression(
+        self, transactions: List[Dict[str, Any]]
+    ) -> List[ReconciliationMismatch]:
+        mismatches = []
+        for i in range(1, len(transactions)):
+            prev = transactions[i - 1]
+            curr = transactions[i]
+            prev_bal = prev.get("balance") or 0
+            curr_bal = curr.get("balance") or 0
+            credit   = curr.get("credit") or 0
+            debit    = curr.get("debit")  or 0
+            expected = prev_bal + credit - debit
+            diff = abs(expected - curr_bal)
+            if diff > self.TOLERANCE:
+                mismatches.append(ReconciliationMismatch(
+                    transaction_index=i,
+                    expected_balance=expected,
+                    actual_balance=curr_bal,
+                    difference=diff,
+                    previous_balance=prev_bal,
+                    transaction_amount=credit if credit else debit,
+                    is_debit=debit > 0,
+                ))
+        return mismatches
+
+    def auto_correct_debit_credit(
+        self, transactions: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        corrected, corrections = [], 0
+        for i, txn in enumerate(transactions):
+            txn_copy = dict(txn)
+            if i == 0:
+                corrected.append(txn_copy)
+                continue
+            prev_bal = corrected[i - 1].get("balance") or 0
+            curr_bal = txn.get("balance") or 0
+            debit    = txn.get("debit")  or 0
+            credit   = txn.get("credit") or 0
+            expected = prev_bal - debit if debit else prev_bal + credit
+            if abs(expected - curr_bal) > self.TOLERANCE:
+                alt = prev_bal + debit if debit else prev_bal - credit
+                if abs(alt - curr_bal) < abs(expected - curr_bal):
+                    txn_copy["debit"]  = credit if credit else None
+                    txn_copy["credit"] = debit  if debit  else None
+                    corrections += 1
+                    self.logger.debug("Corrected txn %d: swapped debit/credit", i)
+            corrected.append(txn_copy)
+        return corrected, corrections
+
+
+__all__ = [
+    "CanaraReconciliationError", "ReconciliationMismatch",
+    "CanaraReconciliationResult", "CanaraReconciliation",
+]

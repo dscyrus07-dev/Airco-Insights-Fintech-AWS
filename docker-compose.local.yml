@@ -5,7 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/airco_app}
+      DATABASE_URL: ${DATABASE_URL}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
@@ -42,7 +42,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:-postgresql://airco:airco123@app-postgres:5432/auth_db}
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
       KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-airco-insights}
@@ -121,10 +121,4 @@ services:
     ports:
       - "6379:6379"
 
-  app-postgres:
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: ${APP_DB_NAME:-airco_app}
-      POSTGRES_USER: ${APP_DB_USER:-airco}
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-change-me-app-db-password}
+  # app-postgres removed — database migrated to Supabase

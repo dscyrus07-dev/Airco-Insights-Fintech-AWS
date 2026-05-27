@@ -360,6 +360,9 @@ class GenericClassifier:
         unclassified: List[Dict[str, Any]] = []
 
         for txn in transactions:
+            # Skip invalid transactions that aren't dictionaries
+            if not isinstance(txn, dict):
+                continue
             result = self._classify_single(txn)
             txn_copy = dict(txn)
             txn_copy["category"] = normalize_category(
@@ -416,6 +419,15 @@ class GenericClassifier:
             "upi_handles": len(getattr(self, "_upi_handles", [])),
             "loan_patterns": len(getattr(self, "_loan_patterns", [])),
             "refund_patterns": len(getattr(self, "_refund_patterns", [])),
+        }
+
+    def get_all_categories(self) -> Dict[str, List[str]]:
+        """Return all possible display categories grouped by direction."""
+        debit_rules = self._debit_rules()
+        credit_rules = self._credit_rules()
+        return {
+            "credit": list(credit_rules.keys()),
+            "debit": list(debit_rules.keys()),
         }
 
     def _debit_rules(self) -> Dict[str, Dict[str, Any]]:
